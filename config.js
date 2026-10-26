@@ -1,6 +1,6 @@
 // Contas de usuário (Firebase).
 //
-// Configuração do projeto Firebase "slancio-app"
+// Configuração do projeto Firebase "slancio-app" (id criado com o nome antigo do app; não pode ser trocado)
 // (Console do Firebase → Configurações do projeto → Seus apps → app Web → "firebaseConfig").
 // Esses valores NÃO são segredo — quem protege os dados de cada pessoa são as regras do Firestore.
 //

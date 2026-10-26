@@ -1,6 +1,6 @@
 // Service worker: rede primeiro (sempre pega a versão nova quando online),
 // cache como reserva para funcionar offline.
-const CACHE = 'slancio-v7';
+const CACHE = 'tetis-v8';
 const ARQUIVOS = [
   './',
   './index.html',

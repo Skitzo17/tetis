@@ -3,7 +3,7 @@
 // =====================================================================
 // Estado: salvo no aparelho (localStorage) e, com contas ativadas, sincronizado no Firebase
 // =====================================================================
-const STORAGE_KEY = 'slancio-dados';
+const STORAGE_KEY = 'tetis-dados';
 const NUVEM_ATIVA = !!window.FIREBASE_CONFIG;
 
 const CATEGORIAS = ['Alimentação', 'Mercado', 'Transporte', 'Moradia', 'Contas', 'Saúde', 'Academia', 'Lazer',
@@ -61,7 +61,7 @@ const conta = {
 
 // Cada conta tem seu próprio espaço no aparelho; sem contas, usa a chave antiga
 const chaveLocal = () => (conta.usuario ? `${STORAGE_KEY}:${conta.usuario.uid}` : STORAGE_KEY);
-const chaveSync = () => `slancio-sync:${conta.usuario.uid}`;
+const chaveSync = () => `tetis-sync:${conta.usuario.uid}`;
 
 function lerLocal(chave) {
   try {
@@ -136,7 +136,7 @@ function guardarSync() {
 }
 
 // Chamado pelo nuvem.js — a ponte entre o Firebase e o app
-window.Slancio = {
+window.Tetis = {
   comUsuario(u) {
     conta.usuario = u;
     conta.verificada = true;
@@ -1674,7 +1674,7 @@ const acoes = {
   },
   compartilharCodigo: () => {
     const g = grupoAtual();
-    const texto = `Bora treinar junto! Entra no grupo "${g.nome}" no Slancio com o código ${g.id} 💪`;
+    const texto = `Bora treinar junto! Entra no grupo "${g.nome}" no Tétis com o código ${g.id} 💪`;
     if (navigator.share) navigator.share({ text: texto, url: location.origin + location.pathname }).catch(() => {});
     else navigator.clipboard?.writeText(texto).then(() => toast('Convite copiado!')).catch(() => toast(`Código: ${g.id}`));
     return false;
@@ -1755,7 +1755,7 @@ const acoes = {
   },
   importarExtrato: () => formImportar(),
 
-  exportar: () => baixarArquivo(`slancio-backup-${hoje()}.json`, JSON.stringify(state, null, 1), 'application/json'),
+  exportar: () => baixarArquivo(`tetis-backup-${hoje()}.json`, JSON.stringify(state, null, 1), 'application/json'),
   exportarCsv: () => {
     const linhas = [['Data', 'Descrição', 'Categoria', 'Valor'], ...[...state.transacoes].sort((a, b) => a.data.localeCompare(b.data))
       .map((t) => [fmtData(t.data), t.descricao, t.categoria, t.valor.toFixed(2).replace('.', ',')])];

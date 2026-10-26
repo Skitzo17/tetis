@@ -1,8 +1,6 @@
-# Slancio — PWA
+# Tétis — PWA
 
-*Mantenha o embalo.*
-
-Slancio é um app pessoal com treino, peso, notas e finanças. Funciona offline.
+Tétis é um app pessoal com treino, peso, notas e finanças. Funciona offline.
 
 Ele roda de dois jeitos:
 - **Sem contas** (`config.js` com `FIREBASE_CONFIG = null`): os dados ficam só no aparelho.

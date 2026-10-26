@@ -1,4 +1,4 @@
-# Publica o Slancio no GitHub Pages a cada envio (push) para a branch main.
+# Publica o Tétis no GitHub Pages a cada envio (push) para a branch main.
 # Também dá para publicar na mão em Actions → "Publicar o app" → Run workflow.
 name: Publicar o app
 

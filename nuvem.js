@@ -105,16 +105,16 @@ onAuthStateChanged(auth, (user) => {
   pararEscuta?.();
   pararEscuta = null;
   if (!user) {
-    window.Slancio.semUsuario();
+    window.Tetis.semUsuario();
     return;
   }
   // foto: a do Google, usada enquanto a pessoa não escolher outra no perfil
-  window.Slancio.comUsuario({ uid: user.uid, email: user.email, nome: user.displayName || '', foto: user.photoURL || '' });
+  window.Tetis.comUsuario({ uid: user.uid, email: user.email, nome: user.displayName || '', foto: user.photoURL || '' });
   pararEscuta = onSnapshot(partes(user.uid), { includeMetadataChanges: true }, (snap) => {
     const dados = {};
     snap.forEach((d) => { dados[d.id] = d.data().json; });
-    window.Slancio.recebeuNuvem(dados, { doCache: snap.metadata.fromCache, pendente: snap.metadata.hasPendingWrites });
-  }, (erro) => window.Slancio.erroNuvem(erro));
+    window.Tetis.recebeuNuvem(dados, { doCache: snap.metadata.fromCache, pendente: snap.metadata.hasPendingWrites });
+  }, (erro) => window.Tetis.erroNuvem(erro));
 });
 
 window.Nuvem = {
@@ -123,7 +123,7 @@ window.Nuvem = {
     const cred = await createUserWithEmailAndPassword(auth, email, senha);
     if (nome) {
       await updateProfile(cred.user, { displayName: nome });
-      window.Slancio.atualizarNome(nome);
+      window.Tetis.atualizarNome(nome);
     }
   },
   google: () => signInWithPopup(auth, new GoogleAuthProvider()),
