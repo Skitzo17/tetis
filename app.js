@@ -725,7 +725,7 @@ function vPeso() {
     ${atual ? `<div class="card agua">
       <span class="agua-icone">💧</span>
       <div class="item-corpo"><div class="item-titulo">Água: ${num1(atual.peso * 0.035)} a ${num1(atual.peso * 0.04)} L por dia</div>
-      <div class="item-sub">35–40 ml por kg · meta segura: perder 0,5 a 1 kg por semana</div></div>
+      <div class="item-sub">35–40 ml por kg de peso</div></div>
     </div>` : ''}
 
     <div class="linha-titulo"><h2 class="secao">Histórico</h2>
