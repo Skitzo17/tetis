@@ -1,0 +1,22 @@
+{
+  "name": "Slancio — treino, peso, notas e finanças",
+  "short_name": "Slancio",
+  "lang": "pt-BR",
+  "start_url": "./#inicio",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1214",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Registrar peso", "url": "./#peso" },
+    { "name": "Treino", "url": "./#treino" },
+    { "name": "Nova nota", "url": "./#notas" }
+  ]
+}

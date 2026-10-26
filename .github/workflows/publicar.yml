@@ -1,0 +1,40 @@
+# Publica o Slancio no GitHub Pages a cada envio (push) para a branch main.
+# Também dá para publicar na mão em Actions → "Publicar o app" → Run workflow.
+name: Publicar o app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Se dois envios chegarem juntos, publica só o mais recente
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Só os arquivos do app vão para o site (documentação e configuração do repositório ficam de fora)
+      - name: Separar os arquivos do site
+        run: |
+          mkdir site
+          cp -r index.html styles.css config.js plano.js app.js nuvem.js sw.js manifest.webmanifest icons site/
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
