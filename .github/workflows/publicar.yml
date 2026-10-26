@@ -30,7 +30,7 @@ jobs:
       - name: Separar os arquivos do site
         run: |
           mkdir site
-          cp -r index.html styles.css config.js plano.js app.js nuvem.js sw.js manifest.webmanifest icons site/
+          cp -r *.html *.css *.js manifest.webmanifest icons site/
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
