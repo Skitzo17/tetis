@@ -5,6 +5,7 @@ const ARQUIVOS = [
   './',
   './index.html',
   './styles.css',
+  './tema-shadcn.css',
   './config.js',
   './plano.js',
   './app.js',
