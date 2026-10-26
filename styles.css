@@ -75,9 +75,8 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .marca { font-weight: 800; font-size: 17px; letter-spacing: -.02em; display: flex; align-items: center; gap: 8px; }
 .marca::before {
-  content: ""; width: 22px; height: 22px; border-radius: 7px;
-  background: linear-gradient(135deg, var(--acento-2), var(--acento));
-  box-shadow: 0 4px 12px -4px var(--acento);
+  content: ""; width: 26px; height: 26px; border-radius: 8px;
+  background: #000 url("icons/logo-96.png") center / cover no-repeat;
 }
 .icone-btn {
   display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
@@ -369,9 +368,9 @@ body.tela-login .abas, body.tela-login .topo-acoes { display: none; }
 body.tela-login { padding-bottom: 24px; }
 .login { max-width: 400px; margin: 4vh auto 0; text-align: center; }
 .login-marca {
-  width: 64px; height: 64px; margin: 0 auto 18px; border-radius: 20px;
-  background: linear-gradient(135deg, var(--acento-2), var(--acento));
-  box-shadow: 0 12px 32px -10px var(--acento);
+  width: 72px; height: 72px; margin: 0 auto 18px; border-radius: 18px;
+  background: #000 url("icons/icon-192.png") center / cover no-repeat;
+  box-shadow: 0 0 0 1px var(--borda), 0 12px 32px -14px rgb(0 0 0 / .5);
 }
 .login .subtitulo { margin-bottom: 22px; }
 .login-card { text-align: left; padding: 20px; }

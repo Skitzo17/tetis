@@ -1,6 +1,6 @@
 // Service worker: rede primeiro (sempre pega a versão nova quando online),
 // cache como reserva para funcionar offline.
-const CACHE = 'tetis-v8';
+const CACHE = 'tetis-v9';
 const ARQUIVOS = [
   './',
   './index.html',
@@ -11,7 +11,8 @@ const ARQUIVOS = [
   './app.js',
   './nuvem.js',
   './manifest.webmanifest',
-  './icons/icon.svg',
+  './icons/favicon-32.png',
+  './icons/logo-96.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',

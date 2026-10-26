@@ -65,7 +65,7 @@ body {
 /* ---------- Topo e abas ---------- */
 .topo { background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid transparent; }
 .marca { font-weight: 600; font-size: 16px; letter-spacing: -.01em; }
-.marca::before { width: 20px; height: 20px; border-radius: 6px; background: var(--acento); box-shadow: none; }
+.marca::before { box-shadow: 0 0 0 1px var(--borda); }
 .icone-btn { width: 36px; height: 36px; border-radius: 8px; }
 .icone-btn:active { transform: none; }
 
@@ -248,7 +248,7 @@ input[type=checkbox]:focus { box-shadow: 0 0 0 3px var(--anel); }
 .avatar.avatar-topo { box-shadow: 0 0 0 1px var(--borda); }
 .avatar.avatar-grande { box-shadow: 0 0 0 1px var(--borda); }
 .perfil-camera { box-shadow: var(--sombra); }
-.login-marca { width: 48px; height: 48px; border-radius: 12px; background: var(--acento); box-shadow: none; }
+.login-marca { width: 64px; height: 64px; border-radius: 14px; box-shadow: 0 0 0 1px var(--borda); }
 .login .titulo { font-size: 24px; }
 .login-card { padding: 24px; }
 
