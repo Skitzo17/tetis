@@ -1922,6 +1922,7 @@ const acoes = {
   conectarBanco: () => formConectarBanco(),
   sincronizarBancos: () => { sincronizarBancos(); return false; },
   pluggyTestar: () => { testarPluggy(); return false; },
+  pluggyWidget: () => { conectarPeloWidget(); return false; },
   pluggyAdicionarItem: () => {
     $('#pluggy-itens').insertAdjacentHTML('beforeend', blocoItemId());
     $('#pluggy-itens').lastElementChild.querySelector('input').focus();

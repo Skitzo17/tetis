@@ -144,6 +144,8 @@ async function sincronizarBancos({ silencioso = false } = {}) {
         if (expirou) problemas.push(`${item.banco || 'Banco'}: a autorização expirou — reconecte no Meu Pluggy.`);
         const { results: lista = [] } = await pluggyChamar(`/accounts?itemId=${item.id}`, { apiKey });
         if (!lista.length && !expirou) problemas.push(`${item.banco || item.id.slice(0, 8)}: nenhuma conta (o banco está vinculado ao conector "MeuPluggy" no Dashboard?)`);
+        // Itens criados pelo Meu Pluggy podem vir com o nome do conector, não do banco: usa o nome da conta
+        if (lista.length && (!item.banco || /meu\s*pluggy/i.test(item.banco))) item.banco = lista[0].marketingName || lista[0].name || item.banco;
         for (const conta of lista) {
           contas++;
           for (const tp of await pluggyTransacoes(apiKey, conta.id, de, ate)) {
@@ -220,27 +222,94 @@ const blocoItemId = (item = {}) => `<div class="pluggy-item">
   <button type="button" class="btn-x" data-act="pluggyRemoverItem" aria-label="Remover banco">${ic('trash-2')}</button>
 </div>`;
 
+// ---------- Janela oficial da Pluggy (Pluggy Connect): conecta o banco e devolve o Item ID ----------
+const PLUGGY_CONNECT_JS = 'https://cdn.pluggy.ai/pluggy-connect/v2.10.0/pluggy-connect.js';
+const CONECTOR_MEU_PLUGGY = 200;
+
+function carregarPluggyConnect() {
+  if (window.PluggyConnect) return Promise.resolve();
+  return new Promise((ok, erro) => {
+    const s = Object.assign(document.createElement('script'), { src: PLUGGY_CONNECT_JS, onload: ok });
+    s.onerror = () => erro(new ErroPluggy('Não foi possível abrir a janela da Pluggy. Verifique a internet.'));
+    document.head.append(s);
+  });
+}
+
+// O que está digitado no formulário (para não perder ao abrir a janela da Pluggy)
+function rascunhoPluggy() {
+  return {
+    clientId: $('#modal [name=clientId]')?.value.trim() || '',
+    clientSecret: $('#modal [name=clientSecret]')?.value.trim() || '',
+    itens: [...document.querySelectorAll('#modal [name=item_id]')].map((i) => i.value.trim()).filter(Boolean).map((id) => ({ id })),
+  };
+}
+
+async function conectarPeloWidget() {
+  const r = rascunhoPluggy();
+  const caixa = $('#pluggy-resultado');
+  if (!r.clientId || !r.clientSecret) { caixa.innerHTML = '<p class="neg">Preencha o Client ID e o Client Secret primeiro.</p>'; return; }
+  caixa.innerHTML = '<p class="muted">Abrindo a janela da Pluggy…</p>';
+  let token;
+  try {
+    const apiKey = await pluggyAutenticar(r.clientId, r.clientSecret);
+    ({ accessToken: token } = await pluggyChamar('/connect_token', { apiKey, metodo: 'POST', corpo: { clientUserId: conta.usuario?.uid || 'tetis' } }));
+    await carregarPluggyConnect();
+  } catch (e) {
+    caixa.innerHTML = `<p class="neg">${esc(e.message)}</p>`;
+    return;
+  }
+  // O modal do app fica por cima de tudo: fecha antes e reabre depois, com o que já estava digitado
+  ui.pluggyRascunho = r;
+  fecharModal();
+  const reabrir = (mensagem) => setTimeout(() => { ui.pluggyMensagem = mensagem; formConectarBanco(); }, 250);
+  let terminou = false;
+  const widget = new window.PluggyConnect({
+    connectToken: token,
+    connectorIds: [CONECTOR_MEU_PLUGGY],
+    language: 'pt',
+    theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+    onSuccess: ({ item }) => {
+      terminou = true;
+      const nome = /meu\s*pluggy/i.test(item.connector?.name || '') ? '' : item.connector?.name || '';
+      if (!ui.pluggyRascunho.itens.some((i) => i.id === item.id)) ui.pluggyRascunho.itens.push({ id: item.id, banco: nome });
+      reabrir(`<p class="pos">Banco conectado${nome ? `: ${esc(nome)}` : ''}! O Item ID já foi preenchido — toque em "Salvar e sincronizar".</p>`);
+    },
+    onError: (erro) => {
+      terminou = true;
+      reabrir(`<p class="neg">A conexão não foi concluída${erro?.message ? `: ${esc(erro.message)}` : ''}. Tente de novo.</p>`);
+    },
+    onClose: () => { if (!terminou) reabrir(''); },
+  });
+  widget.init();
+}
+
 function formConectarBanco() {
-  const cfg = pluggyConfig() || {};
+  // Ao voltar da janela da Pluggy, usa o que estava digitado (e o Item ID novo)
+  const cfg = ui.pluggyRascunho ? { ...(pluggyConfig() || {}), ...ui.pluggyRascunho } : (pluggyConfig() || {});
+  const mensagem = ui.pluggyMensagem || '';
+  ui.pluggyRascunho = null;
+  ui.pluggyMensagem = '';
   abrirModal('Conectar bancos (Open Finance)', `
     <details class="info pluggy-passos" ${cfg.clientId ? '' : 'open'}>
       <summary>Passo a passo (uns 10 minutos, uma vez só)</summary>
       <ol>
         <li>Crie sua conta grátis em <b>meu.pluggy.ai</b> e conecte seus bancos e cartões (até 5). Você autoriza no app do próprio banco.</li>
-        <li>Crie uma conta em <b>dashboard.pluggy.ai</b> (pode ser o mesmo e-mail) e crie <b>uma aplicação</b>.</li>
-        <li>Na aplicação, ative o conector <b>"MeuPluggy"</b> e vincule cada banco que você conectou.</li>
-        <li>Copie o <b>Client ID</b> e o <b>Client Secret</b> (aba "Aplicação") e cole aqui embaixo.</li>
-        <li>Copie o <b>Item ID</b> de cada banco (lista de conexões/itens no Dashboard) e adicione um por vez.</li>
+        <li>Crie uma conta em <b>dashboard.pluggy.ai</b> (pode ser o mesmo e-mail) e crie <b>uma aplicação</b>.
+          O <b>Client Secret aparece só na criação</b> — copie na hora.</li>
+        <li>Abra a aplicação, copie o <b>Client ID</b> e cole aqui embaixo junto com o Client Secret.</li>
+        <li>Toque em <b>"Conectar banco pelo Meu Pluggy"</b>, entre com a sua conta do Meu Pluggy na janela que abrir e escolha o banco.
+          O Item ID é preenchido sozinho. Repita para cada banco.</li>
       </ol>
       <p>É o plano pessoal gratuito da Pluggy: só funciona com contas <b>do seu CPF</b>. Cada pessoa do app usa a própria conta.</p>
     </details>
     <label class="campo"><span>Client ID</span><input name="clientId" required autocomplete="off" spellcheck="false" value="${esc(cfg.clientId)}"></label>
     <label class="campo"><span>Client Secret</span><input name="clientSecret" type="password" required autocomplete="off" value="${esc(cfg.clientSecret)}"></label>
-    <div class="linha-titulo"><span class="campo-rotulo">Bancos (Item IDs)</span></div>
+    <div class="linha-titulo"><span class="campo-rotulo">Bancos</span></div>
+    <button type="button" class="btn primario bloco" data-act="pluggyWidget" style="margin:8px 0 10px">${ic('plus')} Conectar banco pelo Meu Pluggy</button>
     <div id="pluggy-itens" class="pluggy-itens">${(cfg.itens?.length ? cfg.itens : [{}]).map(blocoItemId).join('')}</div>
-    <button type="button" class="btn bloco btn-tracejado" data-act="pluggyAdicionarItem">${ic('plus')} Adicionar banco</button>
+    <button type="button" class="link-btn" data-act="pluggyAdicionarItem" style="font-size:13px">ou colar outro Item ID manualmente</button>
     <div class="acoes" style="margin-top:10px"><button type="button" class="btn pequeno" data-act="pluggyTestar">Testar conexão</button></div>
-    <div id="pluggy-resultado" class="pluggy-resultado"></div>
+    <div id="pluggy-resultado" class="pluggy-resultado">${mensagem}</div>
     <p class="dica" style="margin-top:10px">${ic('check', 'ic-inline')} Suas chaves ficam guardadas só na sua conta (ninguém mais consegue ler) e não vão no backup.</p>
     ${cfg.clientId ? '<div class="modal-extra"><button type="button" class="btn pequeno perigo" data-act="desconectarBancos">Desconectar bancos</button></div>' : ''}
   `, (d, fd) => {

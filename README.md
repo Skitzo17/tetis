@@ -174,7 +174,9 @@ e **não vão no backup**. O app fala direto com `https://api.pluggy.ai`, que ac
 O passo a passo também aparece dentro do app, em Finanças → "Conectar meus bancos":
 1. Em **meu.pluggy.ai**, crie a conta e conecte os bancos e cartões. A autorização é feita no app do banco.
 2. Em **dashboard.pluggy.ai**, crie **uma aplicação**, ative o conector **"MeuPluggy"** e vincule os bancos.
-3. Copie o **Client ID** e o **Client Secret** e o **Item ID** de cada banco para o Tétis.
+3. Copie o **Client ID** e o **Client Secret** para o Tétis. O secret aparece só quando a aplicação é criada.
+4. No Tétis, toque em **"Conectar banco pelo Meu Pluggy"**. Abre a janela oficial da Pluggy (Pluggy Connect, conector 200 = MeuPluggy),
+   você escolhe o banco e o **Item ID é preenchido sozinho**. Também dá para colar um Item ID manualmente.
 
 Como a sincronização funciona:
 - Na primeira vez, busca os **últimos 12 meses**. Depois, desde a última sincronização, com folga de 10 dias.
