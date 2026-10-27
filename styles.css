@@ -702,3 +702,67 @@ dialog h2 { margin: 0 0 18px; font-size: 19px; font-weight: 800; letter-spacing:
 .timer-btn { display: inline-grid; place-items: center; }
 .timer-btn .ic { width: 16px; height: 16px; }
 .post-escolher-txt::first-line { font-size: inherit; }
+
+/* ---------- Ícones animados (inspirados nos "Animated icons" do 21st.dev, só com CSS) ---------- */
+.ic { transform-origin: center; }
+@keyframes ic-pulo { 0% { transform: none; } 30% { transform: translateY(-4px) scale(1.1); } 60% { transform: translateY(0) scale(.95); } 100% { transform: none; } }
+@keyframes ic-balanca { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-16deg); } 45% { transform: rotate(12deg); } 70% { transform: rotate(-6deg); } 85% { transform: rotate(3deg); } }
+@keyframes ic-inclina { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-12deg); } 60% { transform: rotate(9deg); } 80% { transform: rotate(-3deg); } }
+@keyframes ic-escreve { 0%, 100% { transform: none; } 25% { transform: translate(1.5px, -1.5px) rotate(-6deg); } 50% { transform: translate(-1px, 1px) rotate(4deg); } 75% { transform: translate(1px, -1px) rotate(-2deg); } }
+@keyframes ic-abre { 0%, 100% { transform: none; } 35% { transform: scale(1.15, .9); } 65% { transform: scale(.95, 1.06); } }
+@keyframes ic-gota { 0%, 100% { transform: translateY(0) rotate(0); } 20% { transform: translateY(-3px) rotate(-10deg); } 45% { transform: translateY(0) rotate(8deg); } 70% { transform: translateY(-1px) rotate(-4deg); } }
+@keyframes ic-tremor { 0%, 100% { transform: rotate(0); } 15% { transform: rotate(-14deg); } 30% { transform: rotate(12deg); } 45% { transform: rotate(-9deg); } 60% { transform: rotate(6deg); } 75% { transform: rotate(-3deg); } }
+@keyframes ic-brilho {
+  0% { transform: none; filter: none; }
+  40% { transform: scale(1.25) rotate(-10deg); color: #f5b301; filter: drop-shadow(0 0 6px rgb(245 179 1 / .7)); }
+  70% { transform: scale(.95) rotate(4deg); color: #f5b301; }
+  100% { transform: none; filter: none; }
+}
+@keyframes ic-traco { from { stroke-dashoffset: 24; } }
+
+/* Barra inferior: cada aba anima do seu jeito ao ser aberta (e ao passar o mouse) */
+.abas a.ativa[data-aba="inicio"] svg { animation: ic-pulo .5s cubic-bezier(.3, .7, .4, 1.3); }
+.abas a.ativa[data-aba="treino"] svg { animation: ic-balanca .7s ease-in-out; }
+.abas a.ativa[data-aba="peso"] svg { animation: ic-inclina .7s ease-in-out; }
+.abas a.ativa[data-aba="notas"] svg { animation: ic-escreve .6s ease-in-out; }
+.abas a.ativa[data-aba="financas"] svg { animation: ic-abre .55s ease-in-out; }
+@media (hover: hover) {
+  .abas a[data-aba="inicio"]:hover svg { animation: ic-pulo .5s cubic-bezier(.3, .7, .4, 1.3); }
+  .abas a[data-aba="treino"]:hover svg { animation: ic-balanca .7s ease-in-out; }
+  .abas a[data-aba="peso"]:hover svg { animation: ic-inclina .7s ease-in-out; }
+  .abas a[data-aba="notas"]:hover svg { animation: ic-escreve .6s ease-in-out; }
+  .abas a[data-aba="financas"]:hover svg { animation: ic-abre .55s ease-in-out; }
+}
+
+/* Engrenagem gira */
+.icone-btn svg { transition: transform .5s cubic-bezier(.3, .7, .4, 1.2); }
+.icone-btn:hover svg, .icone-btn:active svg { transform: rotate(90deg); }
+
+/* Cards do início: ícones dão um toque ao entrar na tela e ao passar o mouse */
+#app.entrar a[href="#peso"] .card-icone .ic { animation: ic-inclina .8s ease-in-out .35s; }
+#app.entrar a[href="#treino"] .card-icone .ic { animation: ic-balanca .8s ease-in-out .45s; }
+#app.entrar a[href="#financas"] .card-icone .ic { animation: ic-abre .6s ease-in-out .55s; }
+@media (hover: hover) {
+  a[href="#peso"]:hover .card-icone .ic { animation: ic-inclina .7s ease-in-out; }
+  a[href="#treino"]:hover .card-icone .ic { animation: ic-balanca .7s ease-in-out; }
+  a[href="#financas"]:hover .card-icone .ic { animation: ic-abre .55s ease-in-out; }
+}
+
+/* Check-in: o "✓" se desenha */
+.btn-checkin.animar .btn-checkin-icone .ic path { stroke-dasharray: 24; animation: ic-traco .45s ease-out .1s both; }
+
+/* Gota d'água balança ao abrir a aba Peso */
+#app.entrar .agua-icone .ic { animation: ic-gota 1s ease-in-out .4s; }
+@media (hover: hover) { .agua:hover .agua-icone .ic { animation: ic-gota 1s ease-in-out; } }
+
+/* Cronômetro treme ao iniciar o descanso */
+.ic.tremor { animation: ic-tremor .6s ease-in-out; }
+
+/* Troféu brilha ao abrir o ranking */
+.segmento button.animar .ic { animation: ic-brilho .9s ease-in-out; }
+
+/* Postar foto e grupos: pequeno toque ao passar o mouse */
+@media (hover: hover) {
+  [data-act="novoPost"]:hover .ic, [data-act="criarGrupo"]:hover .ic { animation: ic-pulo .5s cubic-bezier(.3, .7, .4, 1.3); }
+  .post-btn:hover .ic { animation: ic-pulo .45s cubic-bezier(.3, .7, .4, 1.3); }
+}

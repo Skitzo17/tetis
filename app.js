@@ -527,6 +527,7 @@ function cardCheckin() {
   const dias = diasAcademia();
   const hj = hoje();
   const feitoHoje = dias.has(hj);
+  const animarCheck = feitoHoje && ui.ultimoCheckin === hj; // desenha o ✓ só no momento do check-in
   const [ano, mes] = ui.calMes.split('-').map(Number);
   const primeiro = new Date(ano, mes - 1, 1).getDay();
   const totalDias = new Date(ano, mes, 0).getDate();
@@ -545,7 +546,7 @@ function cardCheckin() {
 
   return `
     <div class="card checkin">
-      <button class="btn-checkin ${feitoHoje ? 'feito' : ''}" data-act="alternarDia" data-v="${hj}">
+      <button class="btn-checkin ${feitoHoje ? 'feito' : ''} ${animarCheck ? 'animar' : ''}" data-act="alternarDia" data-v="${hj}">
         <span class="btn-checkin-icone">${ic(feitoHoje ? 'check' : 'plus')}</span>
         <span><b>${feitoHoje ? 'Check-in feito hoje' : 'Fazer check-in hoje'}</b><small>${feitoHoje ? 'Toque para desfazer' : 'Marque que você foi à academia'}</small></span>
       </button>
@@ -1174,6 +1175,9 @@ function vGrupos() {
   // Grupo recém-criado/entrado ainda pode não ter chegado do servidor
   const g = grupoAtual();
   if (!g) return '<div class="card"><p class="vazio">Abrindo o grupo…</p></div>';
+  // O troféu brilha só quando a pessoa acabou de abrir o ranking (não a cada atualização do grupo)
+  const animarTrofeu = ui.animarTrofeu;
+  ui.animarTrofeu = false;
   return `
     <div class="grupos-chips">
       ${social.grupos.map((x) => `<button class="grupo-chip ${x.id === ui.grupoAtual ? 'ativo' : ''}" data-act="abrirGrupo" data-v="${x.id}">${esc(x.nome)}</button>`).join('')}
@@ -1186,7 +1190,7 @@ function vGrupos() {
       <button class="btn-x" data-act="sairGrupo" aria-label="Sair do grupo" title="Sair do grupo">${ic('log-out')}</button>
     </div>
     <div class="segmento segmento-largo" style="margin:12px 0">
-      <button data-act="grupoAba" data-v="ranking" class="${ui.grupoAba === 'ranking' ? 'ativo' : ''}">${ic('trophy')} Ranking</button>
+      <button data-act="grupoAba" data-v="ranking" class="${ui.grupoAba === 'ranking' ? 'ativo' : ''} ${animarTrofeu ? 'animar' : ''}">${ic('trophy')} Ranking</button>
       <button data-act="grupoAba" data-v="feed" class="${ui.grupoAba === 'feed' ? 'ativo' : ''}">${ic('camera')} Feed</button>
     </div>
     ${!social.carregado ? '<div class="card"><p class="vazio">Carregando…</p></div>' : ui.grupoAba === 'feed' ? vFeed(g) : vRanking()}
@@ -1654,7 +1658,10 @@ const acoes = {
   },
   // ---------- Grupos ----------
   treinoAba: ({ v }) => { ui.treinoAba = v; },
-  grupoAba: ({ v }) => { ui.grupoAba = v; },
+  grupoAba: ({ v }) => {
+    if (v === 'ranking' && ui.grupoAba !== 'ranking') ui.animarTrofeu = true;
+    ui.grupoAba = v;
+  },
   rankPeriodo: ({ v }) => { ui.rankPeriodo = v; },
   abrirGrupo: ({ v }) => { ui.grupoAtual = v; },
   criarGrupo: () => formCriarGrupo(),
@@ -1810,6 +1817,13 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
   if (!el || el.disabled) return;
   e.preventDefault();
+  // Ícones que tremem ao serem tocados (ex.: cronômetro do descanso) — só onde a tela não é redesenhada
+  if (el.dataset.act === 'descanso') {
+    const icone = el.querySelector('.ic');
+    icone?.classList.remove('tremor');
+    void icone?.getBoundingClientRect();
+    icone?.classList.add('tremor');
+  }
   const r = acoes[el.dataset.act]?.(el.dataset);
   if (r === false || r instanceof Promise) return;
   if (!modalAberto()) { salvar(); render(); }
