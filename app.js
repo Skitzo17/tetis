@@ -611,7 +611,8 @@ function vTreino() {
           ${f.dia !== '' && f.dia != null ? `<span class="ficha-dia">${DIAS[f.dia]}</span>` : ''}
           <div class="item-corpo"><div class="item-titulo">${esc(f.nome)}</div><div class="item-sub">${f.exercicios.length} exercícios · ${esc(f.foco || f.exercicios.map((e) => e.nome).join(', '))}</div></div>
           <div class="acoes">
-            <button class="btn pequeno" data-act="editarFicha" data-id="${f.id}">Editar</button>
+            <button class="btn pequeno btn-icone" data-act="excluirFicha" data-id="${f.id}" aria-label="Excluir ficha" title="Excluir ficha">${ic('trash-2')}</button>
+            <button class="btn pequeno" data-act="editarFicha" data-id="${f.id}">${ic('pencil')} Editar</button>
             <button class="btn pequeno primario" data-act="iniciarTreino" data-id="${f.id}" ${state.sessaoAtual ? 'disabled' : ''}>Iniciar</button>
           </div>
         </div>
@@ -642,7 +643,10 @@ function vTreino() {
           <div class="sessao-itens">
             ${s.itens.map((i) => `<div><span>${i.feito ? '✓' : '○'} ${esc(i.nome)}</span><span class="muted">${esc(exercicioResumo(i))}</span></div>`).join('')}
             ${s.obs ? `<p class="muted">${esc(s.obs)}</p>` : ''}
-            <button class="btn pequeno perigo" data-act="excluirSessao" data-id="${s.id}">Excluir registro</button>
+            <div class="acoes sessao-acoes">
+              <button class="btn pequeno" data-act="editarSessao" data-id="${s.id}">${ic('pencil')} Editar</button>
+              <button class="btn pequeno perigo" data-act="excluirSessao" data-id="${s.id}">${ic('trash-2')} Excluir</button>
+            </div>
           </div>
         </details>`;
       }).join('') : '<p class="vazio">Nenhum treino registrado.</p>'}
@@ -1411,6 +1415,37 @@ function formFicha(f) {
   });
 }
 
+// Editar um treino já registrado (data, nome, cargas, séries, o que foi feito e observações)
+function formSessao(s) {
+  abrirModal('Editar treino', `
+    <div class="linha-form">
+      <label class="campo"><span>Treino</span><input name="nome" required value="${esc(s.nome)}"></label>
+      <label class="campo" style="flex:0 0 150px"><span>Data</span><input type="date" name="data" required max="${hoje()}" value="${s.data}"></label>
+    </div>
+    <div class="lista lista-editar">
+      ${s.itens.map((i, n) => `<div class="ex-linha">
+        <input type="checkbox" name="feito_${n}" ${i.feito ? 'checked' : ''} aria-label="Feito">
+        <div class="item-corpo"><div class="item-titulo ex-nome">${esc(i.nome)}</div></div>
+        <div class="ex-campos">
+          <input name="sr_${n}" placeholder="séries×reps" value="${esc(i.series && i.reps ? `${i.series}x${i.reps}` : '')}" aria-label="Séries e repetições">
+          <input type="number" name="carga_${n}" step="0.5" min="0" inputmode="decimal" placeholder="kg" value="${i.carga}" aria-label="Carga em kg">
+        </div>
+      </div>`).join('')}
+    </div>
+    <label class="campo" style="margin-top:14px"><span>Observações</span><textarea name="obs" rows="2">${esc(s.obs)}</textarea></label>
+    <div class="modal-extra"><button type="button" class="btn pequeno perigo" data-act="excluirSessao" data-id="${s.id}">${ic('trash-2')} Excluir treino</button></div>
+  `, (d) => {
+    Object.assign(s, { nome: d.nome.trim(), data: d.data, obs: d.obs.trim() });
+    s.itens.forEach((i, n) => {
+      i.feito = !!d[`feito_${n}`];
+      i.carga = d[`carga_${n}`] === '' ? '' : parseNum(d[`carga_${n}`]);
+      const m = (d[`sr_${n}`] || '').match(/^\s*(\d+)\s*x\s*(.+?)\s*$/i);
+      Object.assign(i, m ? { series: +m[1], reps: m[2] } : { series: '', reps: '' });
+    });
+    toast('Treino atualizado.');
+  });
+}
+
 function carregarPlano() {
   let novas = 0;
   for (const p of PLANO_EXEMPLO.fichas) {
@@ -1596,9 +1631,14 @@ const acoes = {
   novaFicha: () => formFicha(null),
   editarFicha: ({ id }) => formFicha(porId(state.fichas, id)),
   excluirFicha: ({ id }) => {
-    if (!confirm('Excluir esta ficha? O histórico de treinos é mantido.')) return;
-    state.fichas = state.fichas.filter((f) => f.id !== id);
+    const f = porId(state.fichas, id);
+    if (!confirm(`Excluir a ficha "${f?.nome}"? Os treinos já registrados no histórico continuam salvos.`)) return false;
+    state.fichas = state.fichas.filter((x) => x.id !== id);
     fecharModal();
+    salvar();
+    render();
+    toast('Ficha excluída.');
+    return false;
   },
   carregarPlano: () => carregarPlano(),
   // Ações do cronômetro não redesenham a tela (retornam false)
@@ -1727,9 +1767,15 @@ const acoes = {
     const d = new Date(a, m - 1 + Number(v), 1);
     ui.calMes = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   },
+  editarSessao: ({ id }) => formSessao(porId(state.sessoes, id)),
   excluirSessao: ({ id }) => {
-    if (!confirm('Excluir este registro de treino?')) return;
+    if (!confirm('Excluir este treino do histórico? Isso não pode ser desfeito.')) return false;
     state.sessoes = state.sessoes.filter((s) => s.id !== id);
+    fecharModal();
+    salvar();
+    render();
+    toast('Treino excluído.');
+    return false;
   },
 
   pesoPeriodo: ({ v }) => { ui.pesoPeriodo = v; },

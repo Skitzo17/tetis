@@ -766,3 +766,13 @@ dialog h2 { margin: 0 0 18px; font-size: 19px; font-weight: 800; letter-spacing:
   [data-act="novoPost"]:hover .ic, [data-act="criarGrupo"]:hover .ic { animation: ic-pulo .5s cubic-bezier(.3, .7, .4, 1.3); }
   .post-btn:hover .ic { animation: ic-pulo .45s cubic-bezier(.3, .7, .4, 1.3); }
 }
+
+/* Editar/excluir treinos e fichas */
+.btn-icone { width: 32px; padding: 0 !important; color: var(--texto-2); }
+.btn-icone:hover { color: var(--negativo); }
+.sessao-acoes { margin-top: 10px; }
+.sessao-itens .sessao-acoes { display: flex; justify-content: flex-start; padding: 0; }
+.lista-editar { max-height: 48dvh; overflow-y: auto; }
+.ficha .acoes .btn-icone { flex: none; }
+dialog { overflow-x: hidden; }
+dialog textarea { overflow-x: hidden; }
