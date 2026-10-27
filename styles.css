@@ -776,3 +776,23 @@ dialog h2 { margin: 0 0 18px; font-size: 19px; font-weight: 800; letter-spacing:
 .ficha .acoes .btn-icone { flex: none; }
 dialog { overflow-x: hidden; }
 dialog textarea { overflow-x: hidden; }
+
+/* Editor de ficha: um bloco por exercício */
+.campo-rotulo { font-size: 14px; font-weight: 500; }
+.lista-ex { display: grid; gap: 10px; margin: 8px 0 10px; }
+.ex-editor { border: 1px solid var(--borda); border-radius: 10px; padding: 10px; background: var(--superficie); }
+.ex-editor.ex-novo { animation: subir .25s ease-out; }
+.ex-editor-topo { display: flex; align-items: center; gap: 4px; }
+.ex-editor-topo input { flex: 1; font-weight: 500; }
+.ex-num {
+  flex: none; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; margin-right: 4px;
+  background: var(--superficie-2); color: var(--texto-2); font-size: 12px; font-weight: 600;
+}
+.ex-editor-topo .btn-x { padding: 4px 6px; }
+.ex-editor-topo .btn-x .ic { width: 16px; height: 16px; }
+.ex-editor:first-child [data-act="exSubir"], .ex-editor:last-child [data-act="exDescer"] { opacity: .3; pointer-events: none; }
+.ex-editor-campos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; }
+.ex-editor-campos label span { display: block; font-size: 12px; color: var(--texto-2); margin-bottom: 3px; }
+.ex-editor-obs { margin-top: 8px; }
+@media (max-width: 480px) { .ex-editor-campos { grid-template-columns: repeat(2, 1fr); } }
+.btn-tracejado { border-style: dashed; background: transparent; }

@@ -345,9 +345,11 @@ $('#modal').addEventListener('click', (e) => {
 $('#modal-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (e.submitter?.value === 'cancelar') { fecharModal(); return; }
-  const dados = Object.fromEntries(new FormData(e.target));
+  const formData = new FormData(e.target);
+  const dados = Object.fromEntries(formData);
   try {
-    if ((await modalSubmit?.(dados)) === false) return;
+    // formData vai junto para campos repetidos (ex.: lista de exercícios da ficha)
+    if ((await modalSubmit?.(dados, formData)) === false) return;
   } catch (err) {
     toast(err.message);
     return;
@@ -690,7 +692,10 @@ function vSessao() {
         </div>`;
       }).join('')}
     </div>
-    <div class="acoes" style="margin-top:10px"><button class="btn pequeno" data-act="addExercicioSessao">+ Exercício</button></div>
+    <div class="acoes" style="margin-top:10px">
+      <button class="btn pequeno" data-act="addExercicioSessao">${ic('plus')} Exercício</button>
+      <button class="btn pequeno" data-act="recomecarTreino" title="Zera o horário de início e as marcações">${ic('rotate-ccw')} Recomeçar</button>
+    </div>
     <label class="campo" style="margin-top:16px"><span>Observações</span><textarea rows="2" data-sess="obs" placeholder="Como foi o treino?">${esc(s.obs)}</textarea></label>
     <div class="acoes">
       <button class="btn primario" data-act="finalizarTreino" style="flex:1">Finalizar treino</button>
@@ -1390,6 +1395,34 @@ function render(animar = false) {
 // =====================================================================
 // Formulários dos modais
 // =====================================================================
+// Um exercício da ficha, com seus próprios campos (o editor vai empilhando um bloco por exercício)
+function blocoExercicio(e = {}) {
+  return `<div class="ex-editor">
+    <div class="ex-editor-topo">
+      <span class="ex-num"></span>
+      <input name="ex_nome" value="${esc(e.nome)}" placeholder="Nome do exercício" aria-label="Nome do exercício">
+      <button type="button" class="btn-x" data-act="exSubir" aria-label="Subir">${ic('chevron-up')}</button>
+      <button type="button" class="btn-x" data-act="exDescer" aria-label="Descer">${ic('chevron-down')}</button>
+      <button type="button" class="btn-x" data-act="exRemover" aria-label="Remover exercício">${ic('trash-2')}</button>
+    </div>
+    <div class="ex-editor-campos">
+      <label><span>Séries</span><input name="ex_series" type="number" min="1" inputmode="numeric" value="${esc(e.series)}" placeholder="4"></label>
+      <label><span>Reps</span><input name="ex_reps" value="${esc(e.reps)}" placeholder="10-12"></label>
+      <label><span>Carga (kg)</span><input name="ex_carga" type="number" step="0.5" min="0" inputmode="decimal" value="${esc(e.carga)}" placeholder="—"></label>
+      <label><span>Descanso (s)</span><input name="ex_descanso" inputmode="numeric" value="${esc(e.descanso)}" placeholder="60"></label>
+    </div>
+    <input name="ex_obs" class="ex-editor-obs" value="${esc(e.obs)}" placeholder="Observação (opcional)">
+  </div>`;
+}
+
+// Numera os blocos e atualiza a contagem depois de adicionar, remover ou mover
+function renumerarExercicios() {
+  const blocos = [...document.querySelectorAll('#lista-ex .ex-editor')];
+  blocos.forEach((b, i) => { b.querySelector('.ex-num').textContent = i + 1; });
+  const c = $('#ex-contagem');
+  if (c) c.textContent = `${blocos.length} ${blocos.length === 1 ? 'exercício' : 'exercícios'}`;
+}
+
 function formFicha(f) {
   const diaAtual = f?.dia ?? '';
   abrirModal(f ? 'Editar ficha' : 'Nova ficha', `
@@ -1401,18 +1434,25 @@ function formFicha(f) {
         ${[1, 2, 3, 4, 5, 6, 0].map((d) => `<option value="${d}" ${diaAtual === d ? 'selected' : ''}>${DIAS[d]}</option>`).join('')}
       </select></label>
     </div>
-    <label class="campo"><span>Exercícios (um por linha)</span>
-      <textarea name="exercicios" rows="10" required placeholder="Supino reto 4x10-12 40kg 60s — Costas bem apoiadas&#10;Crucifixo 3x12 14kg 45s&#10;Cardio: esteira 1x20min">${esc(f ? f.exercicios.map(exercicioTexto).join('\n') : '')}</textarea>
-    </label>
-    <p class="dica">Formato: <b>nome séries x reps carga descanso — observação</b>. Só o nome é obrigatório.</p>
-    ${f ? `<div class="modal-extra"><button type="button" class="btn pequeno perigo" data-act="excluirFicha" data-id="${f.id}">Excluir ficha</button></div>` : ''}
-  `, (d) => {
-    const exercicios = parseExercicios(d.exercicios);
+    <div class="linha-titulo"><span class="campo-rotulo">Exercícios</span><span class="muted" id="ex-contagem"></span></div>
+    <div id="lista-ex" class="lista-ex">${(f?.exercicios.length ? f.exercicios : [{}]).map(blocoExercicio).join('')}</div>
+    <button type="button" class="btn bloco btn-tracejado" data-act="exAdicionar">${ic('plus')} Adicionar exercício</button>
+    ${f ? `<div class="modal-extra" style="margin-top:12px"><button type="button" class="btn pequeno perigo" data-act="excluirFicha" data-id="${f.id}">${ic('trash-2')} Excluir ficha</button></div>` : ''}
+  `, (d, fd) => {
+    // Cada bloco manda os mesmos nomes de campo; getAll devolve na ordem da tela
+    const campo = (nome) => fd.getAll(nome).map((v) => String(v).trim());
+    const nomes = campo('ex_nome'), series = campo('ex_series'), reps = campo('ex_reps');
+    const cargas = campo('ex_carga'), descansos = campo('ex_descanso'), obs = campo('ex_obs');
+    const exercicios = nomes.map((nome, i) => ({
+      nome, series: series[i] ? Number(series[i]) : '', reps: reps[i].replace(/\s*a\s*/i, '-'),
+      carga: cargas[i] ? parseNum(cargas[i]) : '', descanso: descansos[i].replace(/\s*s$/i, ''), obs: obs[i],
+    })).filter((e) => e.nome);
     if (!exercicios.length) throw new Error('Adicione pelo menos um exercício.');
     const dados = { nome: d.nome.trim(), foco: d.foco.trim(), dia: d.dia === '' ? '' : Number(d.dia), exercicios };
     if (f) Object.assign(f, dados);
     else state.fichas.push({ id: uid(), ...dados });
   });
+  renumerarExercicios();
 }
 
 // Editar um treino já registrado (data, nome, cargas, séries, o que foi feito e observações)
@@ -1640,6 +1680,38 @@ const acoes = {
     toast('Ficha excluída.');
     return false;
   },
+  // Editor de ficha: mexem só nos blocos dentro do modal (não redesenham a tela)
+  exAdicionar: () => {
+    const lista = $('#lista-ex');
+    lista.insertAdjacentHTML('beforeend', blocoExercicio());
+    renumerarExercicios();
+    const novo = lista.lastElementChild;
+    novo.classList.add('ex-novo');
+    novo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    novo.querySelector('[name=ex_nome]').focus({ preventScroll: true });
+    return false;
+  },
+  exRemover: (_, el) => {
+    const bloco = el.closest('.ex-editor');
+    const nome = bloco.querySelector('[name=ex_nome]').value.trim();
+    if (nome && !confirm(`Remover "${nome}" da ficha?`)) return false;
+    bloco.remove();
+    if (!$('#lista-ex .ex-editor')) $('#lista-ex').insertAdjacentHTML('beforeend', blocoExercicio());
+    renumerarExercicios();
+    return false;
+  },
+  exSubir: (_, el) => {
+    const bloco = el.closest('.ex-editor');
+    if (bloco.previousElementSibling) bloco.previousElementSibling.before(bloco);
+    renumerarExercicios();
+    return false;
+  },
+  exDescer: (_, el) => {
+    const bloco = el.closest('.ex-editor');
+    if (bloco.nextElementSibling) bloco.nextElementSibling.after(bloco);
+    renumerarExercicios();
+    return false;
+  },
   carregarPlano: () => carregarPlano(),
   // Ações do cronômetro não redesenham a tela (retornam false)
   descanso: ({ v }) => { iniciarDescanso(parseInt(v, 10) || 60); return false; },
@@ -1670,6 +1742,18 @@ const acoes = {
     state.sessaoAtual = null;
     toast('Treino salvo! 💪');
     location.hash = '#treino';
+  },
+  // Começou sem querer ou bem antes da hora: o início passa a ser agora e os exercícios voltam a "não feito"
+  recomecarTreino: () => {
+    const s = state.sessaoAtual;
+    if (!confirm('Recomeçar o treino agora? O horário de início vai para agora e os exercícios marcados voltam a ficar desmarcados (as cargas digitadas continuam).')) return false;
+    Object.assign(s, { inicio: Date.now(), data: hoje() });
+    s.itens.forEach((i) => { i.feito = false; });
+    pararDescanso();
+    salvar();
+    render();
+    toast(`Treino recomeçado às ${new Date(s.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.`);
+    return false;
   },
   cancelarTreino: () => {
     if (!confirm('Descartar o treino em andamento?')) return;
@@ -1870,7 +1954,7 @@ document.addEventListener('click', (e) => {
     void icone?.getBoundingClientRect();
     icone?.classList.add('tremor');
   }
-  const r = acoes[el.dataset.act]?.(el.dataset);
+  const r = acoes[el.dataset.act]?.(el.dataset, el);
   if (r === false || r instanceof Promise) return;
   if (!modalAberto()) { salvar(); render(); }
 });
