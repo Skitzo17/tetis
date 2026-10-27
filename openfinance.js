@@ -47,27 +47,25 @@ async function pluggyAutenticar(clientId, clientSecret) {
 // Transações de uma conta. Tenta a listagem nova (v2, por cursor "next") e cai para a antiga (paginada) se precisar.
 async function pluggyTransacoes(apiKey, contaId, de, ate) {
   const todas = [];
-  // "next" pode vir como query string, caminho, URL completa ou só o cursor: monta a próxima página em qualquer caso
-  const proxima = (next) => {
-    let s = String(next).trim();
-    if (/^https?:/i.test(s)) s = new URL(s).search;
-    else if (s.includes('?')) s = s.slice(s.indexOf('?'));
-    s = s.replace(/^\?/, '');
-    const p = s.includes('=') ? new URLSearchParams(s) : new URLSearchParams({ cursor: s });
-    if (!p.has('accountId')) p.set('accountId', contaId);
-    if (!p.has('dateFrom')) p.set('dateFrom', de);
-    if (!p.has('dateTo')) p.set('dateTo', ate);
-    return p.toString();
+  // "next" vem como query string com o cursor em "after" (base64): tira só o cursor e manda de volta
+  // junto com os mesmos filtros — a v2 recusa parâmetros que não conhece
+  const cursor = (next) => {
+    const s = String(next).trim();
+    const m = s.match(/(?:^|[?&])after=([^&]*)/);
+    const bruto = m ? m[1] : s.includes('=') ? '' : s;
+    try { return decodeURIComponent(bruto); } catch (e) { return bruto; }
   };
   try {
-    let qs = `accountId=${contaId}&dateFrom=${de}&dateTo=${ate}`;
+    const base = `accountId=${contaId}&dateFrom=${de}&dateTo=${ate}`;
+    let qs = base;
     const vistas = new Set();
     for (let i = 0; i < 200 && !vistas.has(qs); i++) {
       vistas.add(qs);
       const r = await pluggyChamar(`/v2/transactions?${qs}`, { apiKey });
       todas.push(...(r.results || []));
-      if (!r.next) return todas;
-      qs = proxima(r.next);
+      const after = r.next ? cursor(r.next) : '';
+      if (!after) return todas;
+      qs = `${base}&after=${encodeURIComponent(after)}`;
     }
     return todas;
   } catch (e) {
@@ -85,7 +83,8 @@ async function pluggyTransacoes(apiKey, contaId, de, ate) {
 
 // Busca o histórico em blocos de 3 meses, do mais recente para o mais antigo (até ~2 anos).
 // Para quando os blocos antigos vêm vazios: é o limite do que o banco compartilha.
-async function pluggyHistorico(apiKey, contaId, diasAtras) {
+// Blocos que dão erro vão para "erros" (antes eram ignorados em silêncio e o histórico ficava pela metade).
+async function pluggyHistorico(apiKey, contaId, diasAtras, erros = []) {
   const todas = [];
   let vaziosSeguidos = 0;
   for (let fim = 0; fim < diasAtras; fim += 90) {
@@ -95,6 +94,10 @@ async function pluggyHistorico(apiKey, contaId, diasAtras) {
       bloco = await pluggyTransacoes(apiKey, contaId, de, ate);
     } catch (e) {
       if (fim === 0) throw e; // erro no bloco mais recente é problema de verdade
+      if (e.status === 429) { // muitas chamadas seguidas: espera um pouco e tenta de novo
+        await new Promise((r) => setTimeout(r, 2000));
+        try { bloco = await pluggyTransacoes(apiKey, contaId, de, ate); } catch (e2) { erros.push(`${fmtData(de)} a ${fmtData(ate)}: ${e2.message}`); }
+      } else erros.push(`${fmtData(de)} a ${fmtData(ate)}: ${e.message}`);
     }
     todas.push(...bloco);
     vaziosSeguidos = bloco.length ? 0 : vaziosSeguidos + 1;
@@ -179,7 +182,8 @@ async function sincronizarBancos({ silencioso = false } = {}) {
     // Depois: só desde a última sincronização, com folga de 10 dias
     const completo = !cfg.historicoCompleto || ui.forcarHistorico;
     const diasNovos = Math.min(365, Math.ceil((Date.now() - (cfg.ultimaSync || 0)) / 864e5) + 10);
-    const buscar = (contaId) => (completo ? pluggyHistorico(apiKey, contaId, 730) : pluggyTransacoes(apiKey, contaId, diaISO(-diasNovos), hoje()));
+    const buscar = (contaId, erros) => (completo ? pluggyHistorico(apiKey, contaId, 730, erros) : pluggyTransacoes(apiKey, contaId, diaISO(-diasNovos), hoje()));
+    const porConta = []; // o que a Pluggy entregou de cada conta (aparece no cartão dos bancos)
     let deuErro = false;
     // Limpa aplicações/resgates que entraram como gasto/receita em versões anteriores
     state.transacoes = state.transacoes.filter((t) => !(t.origem === 'openfinance' && ehMovimentoGuardado(t.descricao, t.catPluggy)));
@@ -211,7 +215,13 @@ async function sincronizarBancos({ silencioso = false } = {}) {
         } catch (e) { /* banco sem investimentos ou sem permissão: segue só com as contas */ }
         for (const conta of lista) {
           contas++;
-          for (const tp of await buscar(conta.id)) {
+          const erros = [];
+          const lidas = await buscar(conta.id, erros);
+          const nomeConta = conta.type === 'CREDIT' ? 'Cartão' : conta.subtype === 'SAVINGS_ACCOUNT' ? 'Poupança' : 'Conta';
+          if (erros.length) { deuErro = true; problemas.push(`${nomeConta}: parte do histórico não veio (${erros[0]})`); }
+          const datas = lidas.map((tp) => String(tp.date).slice(0, 10)).sort();
+          porConta.push({ nome: `${nomeConta} ${item.banco || ''}`.trim(), qtd: lidas.length, de: datas[0] || '', ate: datas.at(-1) || '' });
+          for (const tp of lidas) {
             const t = converterTransacao(tp, conta);
             if (!t || existentes.has(t.chave)) continue;
             existentes.add(t.chave);
@@ -228,7 +238,9 @@ async function sincronizarBancos({ silencioso = false } = {}) {
     if (completo && !deuErro) cfg.historicoCompleto = true; // se algo falhou, tenta o histórico inteiro de novo na próxima
     ui.forcarHistorico = false;
     const doBanco = state.transacoes.filter((t) => t.origem === 'openfinance').map((t) => t.data).sort();
-    cfg.ultimoResultado = { novos, contas, problemas, quando: Date.now(), desde: doBanco[0] || '' };
+    // O resumo por conta só vale para a busca completa (a de rotina pega só os últimos dias)
+    const lidoPorConta = completo ? porConta : cfg.ultimoResultado?.porConta;
+    cfg.ultimoResultado = { novos, contas, problemas, quando: Date.now(), desde: doBanco[0] || '', porConta: lidoPorConta || [] };
     if (saldos.contas.length) cfg.saldos = { ...saldos, quando: Date.now() };
     salvar();
     if (!silencioso || novos) toast(novos ? `${novos} lançamentos novos dos seus bancos.` : 'Tudo em dia: nenhum lançamento novo.');
@@ -270,6 +282,7 @@ function cardBancos() {
       <button class="link-btn" data-act="conectarBanco">Configurar</button>
     </div>
     <div class="fin-bancos-lista">${cfg.itens.map((i) => `<span class="chip ${['LOGIN_ERROR', 'OUTDATED'].includes(i.status) ? 'chip-erro' : ''}">${esc(i.banco || 'Banco ' + i.id.slice(0, 6))}</span>`).join('')}</div>
+    ${res?.porConta?.length ? `<div class="fin-bancos-contas">${res.porConta.map((c) => `<span>${esc(c.nome)}: ${c.qtd} ${c.qtd === 1 ? 'lançamento' : 'lançamentos'}${c.de ? ` · de ${fmtData(c.de)} a ${fmtData(c.ate)}` : ''}</span>`).join('')}</div>` : ''}
     <div class="fin-bancos-rodape">
       <span class="item-sub">${res?.erro ? `<span class="neg">${esc(res.erro)}</span>` : `Atualizado ${quando}${res?.desde ? ` · histórico desde ${MESES[+res.desde.slice(5, 7) - 1].toLowerCase()}/${res.desde.slice(2, 4)}` : ''}${res?.problemas?.length ? ` · <span class="neg">${esc(res.problemas[0])}</span>` : ''}`}
         <button class="link-btn fin-rebuscar" data-act="rebuscarHistorico">buscar histórico de novo</button></span>

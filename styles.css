@@ -211,7 +211,9 @@ h2.secao { font-size: 13px; font-weight: 700; color: var(--texto-2); margin: 26p
 /* ---------- Listas ---------- */
 .lista {
   background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio);
-  overflow: hidden; box-shadow: var(--sombra);
+  /* clip (e não hidden): corta os cantos sem virar área de rolagem — senão a data "grudenta" (.dia)
+     gruda dentro da lista e cai em cima dos lançamentos */
+  overflow: hidden; overflow: clip; box-shadow: var(--sombra);
 }
 .item {
   display: flex; align-items: center; gap: 12px; padding: 13px 16px;
@@ -870,6 +872,7 @@ dialog textarea { overflow-x: hidden; }
 .fin-conectar .item-titulo, .fin-conectar .item-sub { display: block; white-space: normal; }
 .fin-bancos { margin-top: 12px; }
 .fin-bancos-lista { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; }
+.fin-bancos-contas { display: grid; gap: 2px; margin: -2px 0 10px; font-size: 12px; color: var(--texto-2); }
 .fin-bancos-rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .fin-bancos-rodape .item-sub { white-space: normal; }
 .chip-erro { background: color-mix(in srgb, var(--negativo) 15%, transparent) !important; color: var(--negativo) !important; }
