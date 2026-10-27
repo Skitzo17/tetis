@@ -1,6 +1,6 @@
 // Service worker: rede primeiro (sempre pega a versão nova quando online),
 // cache como reserva para funcionar offline.
-const CACHE = 'tetis-v13';
+const CACHE = 'tetis-v14';
 const ARQUIVOS = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const ARQUIVOS = [
   './config.js',
   './icones.js',
   './plano.js',
+  './graficos-financas.js',
   './app.js',
   './nuvem.js',
   './manifest.webmanifest',

@@ -218,7 +218,7 @@ window.Tetis = {
 // Estado só da interface (não precisa persistir)
 const ui = { pesoPeriodo: '90', buscaNotas: '', mes: hoje().slice(0, 7), filtroCat: '', exercicio: '', calMes: hoje().slice(0, 7), ultimoCheckin: '',
   modoLogin: 'entrar', emailLogin: '', entrando: false, treinoAba: 'meu', rankPeriodo: 'mes',
-  grupoAtual: '', grupoAba: 'ranking' };
+  grupoAtual: '', grupoAba: 'ranking', mapaPeriodo: 'mes' };
 
 // =====================================================================
 // Utilitários
@@ -789,8 +789,8 @@ function vFinancas() {
   const [ano, mes] = ui.mes.split('-').map(Number);
   const r = resumoMes(ui.mes);
   const orc = state.config.orcamentos || {};
-  const cats = Object.entries(r.porCat).sort((a, b) => b[1] - a[1]);
-  for (const c of Object.keys(orc)) if (orc[c] && !r.porCat[c]) cats.push([c, 0]);
+  // Barras de orçamento só para as categorias que têm limite definido (o mapa de blocos mostra o resto)
+  const cats = Object.keys(orc).filter((c) => orc[c]).map((c) => [c, r.porCat[c] || 0]).sort((a, b) => b[1] / orc[b[0]] - a[1] / orc[a[0]]);
   const maior = Math.max(1, ...cats.map(([c, v]) => Math.max(v, orc[c] || 0)));
 
   const lista = r.doMes.filter((t) => !ui.filtroCat || t.categoria === ui.filtroCat)
@@ -822,8 +822,10 @@ function vFinancas() {
       <button class="btn" data-act="importarExtrato" style="flex:1">Importar extrato</button>
     </div>
 
+    ${visaoFinancas()}
+
     ${cats.length ? `
-      <h2 class="secao">Gastos por categoria</h2>
+      <h2 class="secao">Orçamentos do mês</h2>
       <div class="card barras">
         ${cats.map(([c, v]) => {
           const lim = orc[c];
@@ -1390,6 +1392,7 @@ function render(animar = false) {
   document.querySelectorAll('.abas a').forEach((a) => a.classList.toggle('ativa', a.dataset.aba === aba));
   $('#avatar-topo').innerHTML = precisaLogin ? '' : avatarHtml('avatar-topo');
   if (NUVEM_ATIVA) atualizarEscutaSocial();
+  animarNumeros(); // valores das finanças "contam" até o número novo
 }
 
 // =====================================================================
@@ -1883,6 +1886,17 @@ const acoes = {
     ui.filtroCat = '';
   },
   filtroCat: ({ v }) => { ui.filtroCat = ui.filtroCat === v ? '' : v; },
+  mesIr: ({ v }) => { ui.mes = v; ui.filtroCat = ''; },
+  mapaPeriodo: ({ v }) => { ui.mapaPeriodo = v; ui.filtroCat = ''; },
+  ajustarGuardado: () => abrirModal('Quanto você já tinha guardado?', `
+    <p class="dica">O "Guardado no total" soma tudo o que sobrou (receitas − despesas) desde o primeiro lançamento.
+      Se você já tinha dinheiro guardado antes de começar a usar o app, informe aqui para o total ficar certo.</p>
+    <label class="campo"><span>Valor guardado antes do app (R$)</span>
+      <input type="number" name="saldoInicial" step="0.01" inputmode="decimal" value="${esc(state.config.saldoInicial ?? '')}" placeholder="0,00"></label>`,
+  (d) => {
+    state.config.saldoInicial = d.saldoInicial === '' ? '' : parseNum(d.saldoInicial);
+    toast('Total guardado atualizado.');
+  }),
   novaTransacao: () => formTransacao(null),
   editarTransacao: ({ id }) => formTransacao(porId(state.transacoes, id)),
   excluirTransacao: ({ id }) => {
