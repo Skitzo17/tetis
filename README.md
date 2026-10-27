@@ -158,10 +158,32 @@ exige o plano pago, por isso não é usado.
 
 ## Finanças e Open Finance
 
-Hoje os dados entram de duas formas: pelo lançamento manual ou pela importação do extrato em **OFX/CSV**,
-que o app do banco permite exportar. Os lançamentos repetidos são ignorados, a categoria é sugerida
-automaticamente e o app aprende quando você corrige uma.
+Os lançamentos entram de três formas:
+- **Manual**, pelo botão "+ Lançamento".
+- **Importando o extrato** em OFX/CSV.
+- **Automaticamente pelo Open Finance**, com o **Meu Pluggy** (`openfinance.js`).
 
-A integração automática exige um agregador de Open Finance (ex.: Pluggy). A chave de API não pode
-ficar no navegador, então seria preciso um pequeno backend (ex.: uma função serverless) que busque as transações
-e as entregue ao app.
+Em todos os casos, os lançamentos repetidos são ignorados, a categoria é sugerida e o app aprende quando você corrige uma.
+
+### Open Finance (Meu Pluggy, grátis)
+
+Cada pessoa usa a **própria** conta Pluggy, no plano pessoal e gratuito, que aceita até 5 bancos do mesmo CPF.
+O Client ID, o Client Secret e os Item IDs ficam só nos dados da pessoa (`usuarios/{uid}`, protegido pelas regras do Firestore)
+e **não vão no backup**. O app fala direto com `https://api.pluggy.ai`, que aceita chamadas do navegador, sem servidor.
+
+O passo a passo também aparece dentro do app, em Finanças → "Conectar meus bancos":
+1. Em **meu.pluggy.ai**, crie a conta e conecte os bancos e cartões. A autorização é feita no app do banco.
+2. Em **dashboard.pluggy.ai**, crie **uma aplicação**, ative o conector **"MeuPluggy"** e vincule os bancos.
+3. Copie o **Client ID** e o **Client Secret** e o **Item ID** de cada banco para o Tétis.
+
+Como a sincronização funciona:
+- Na primeira vez, busca os **últimos 12 meses**. Depois, desde a última sincronização, com folga de 10 dias.
+- Sincroniza sozinha ao abrir Finanças, se a última vez foi há mais de 12 h. A Pluggy atualiza uma vez por dia.
+- Endpoints: `POST /auth` → `GET /items/{id}` → `GET /accounts?itemId=` → `GET /v2/transactions` (cursor `next`).
+  Se a v2 falhar, usa `/transactions` paginado.
+- Conta corrente: débito vem negativo. Cartão: a compra vem positiva e vira despesa; o estorno vira reembolso.
+- **Ficam de fora**, para não contar em dobro: lançamentos pendentes, pagamentos de fatura e transferências entre as próprias contas.
+- Identificador anti-repetição: `p:{id da transação na Pluggy}`.
+
+O plano pessoal não permite usar uma única conta Pluggy para os dados de outras pessoas. Para isso, só o plano comercial,
+a partir de R$ 2.500/mês.

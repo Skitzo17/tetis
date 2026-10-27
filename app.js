@@ -46,6 +46,7 @@ function estadoInicial() {
     notas: [],         // { id, titulo, texto, fixada, atualizada }
     transacoes: [],    // { id, data, descricao, valor (negativo = despesa), categoria, origem, chave }
     regras: {},        // descrição normalizada -> categoria (aprendida quando você corrige)
+    integracoes: {},   // pluggy: { clientId, clientSecret, itens[{ id, banco, status }], ultimaSync } — Open Finance
   };
 }
 
@@ -799,7 +800,7 @@ function vFinancas() {
   for (const t of lista) {
     if (t.data !== diaAtual) { diaAtual = t.data; linhas += `<div class="dia">${diaSemana(t.data)}, ${fmtData(t.data)}</div>`; }
     linhas += `<button class="item" data-act="editarTransacao" data-id="${t.id}">
-      <div class="item-corpo"><div class="item-titulo">${esc(t.descricao)}</div><div class="item-sub">${esc(t.categoria)}${t.origem === 'importado' ? ' · importado' : ''}</div></div>
+      <div class="item-corpo"><div class="item-titulo">${esc(t.descricao)}</div><div class="item-sub">${esc(t.categoria)}${t.origem === 'importado' ? ' · importado' : t.origem === 'openfinance' ? ` · ${esc(t.conta || 'banco')}` : ''}</div></div>
       <span class="item-valor ${t.valor < 0 ? 'neg' : 'pos'}">${t.valor < 0 ? '−' : '+'}${brl(Math.abs(t.valor))}</span>
     </button>`;
   }
@@ -822,6 +823,8 @@ function vFinancas() {
       <button class="btn" data-act="importarExtrato" style="flex:1">Importar extrato</button>
     </div>
 
+    ${cardBancos()}
+
     ${visaoFinancas()}
 
     ${cats.length ? `
@@ -843,10 +846,11 @@ function vFinancas() {
     <div class="lista">${linhas || '<p class="vazio">Nenhum lançamento neste mês.</p>'}</div>
 
     <details class="card info" style="margin-top:16px">
-      <summary>E o Open Finance?</summary>
-      <p>A conexão direta com os bancos via Open Finance só é liberada para instituições autorizadas pelo Banco Central.
-      Para uso pessoal, o caminho é um agregador (ex.: Pluggy) com um pequeno servidor guardando a chave de API — dá para plugar aqui depois.
-      Por enquanto, exporte o extrato do app do banco em <b>OFX</b> ou <b>CSV</b> e use “Importar extrato”: os lançamentos repetidos são ignorados e as categorias são sugeridas automaticamente.</p>
+      <summary>Como funciona a conexão com os bancos?</summary>
+      <p>O app usa o <b>Meu Pluggy</b>, o plano pessoal e gratuito da Pluggy (agregador autorizado de Open Finance): você conecta até 5 bancos e
+      cartões do seu CPF e o app busca os lançamentos uma vez por dia. Lançamentos repetidos são ignorados, pagamentos de fatura e transferências entre
+      suas próprias contas ficam de fora (para não contar em dobro), e as categorias são sugeridas automaticamente — se você corrigir uma, o app aprende.
+      Também dá para importar o extrato em <b>OFX</b> ou <b>CSV</b> pelo “Importar extrato”.</p>
     </details>
   `;
 }
@@ -1393,6 +1397,8 @@ function render(animar = false) {
   $('#avatar-topo').innerHTML = precisaLogin ? '' : avatarHtml('avatar-topo');
   if (NUVEM_ATIVA) atualizarEscutaSocial();
   animarNumeros(); // valores das finanças "contam" até o número novo
+  // Ao abrir Finanças, busca lançamentos novos dos bancos (se a última vez foi há mais de 12 h)
+  if (animar && rota === 'financas' && !precisaLogin && (!NUVEM_ATIVA || conta.sincronizada)) sincronizarSeAntigo();
 }
 
 // =====================================================================
@@ -1906,7 +1912,35 @@ const acoes = {
   },
   importarExtrato: () => formImportar(),
 
-  exportar: () => baixarArquivo(`tetis-backup-${hoje()}.json`, JSON.stringify(state, null, 1), 'application/json'),
+  // O backup não leva as chaves do banco (Client Secret): se o arquivo vazar, ninguém acessa suas contas
+  exportar: () => {
+    const copia = structuredClone(state);
+    if (copia.integracoes?.pluggy) copia.integracoes.pluggy = { ...copia.integracoes.pluggy, clientSecret: '' };
+    baixarArquivo(`tetis-backup-${hoje()}.json`, JSON.stringify(copia, null, 1), 'application/json');
+  },
+  // ---------- Open Finance (openfinance.js) ----------
+  conectarBanco: () => formConectarBanco(),
+  sincronizarBancos: () => { sincronizarBancos(); return false; },
+  pluggyTestar: () => { testarPluggy(); return false; },
+  pluggyAdicionarItem: () => {
+    $('#pluggy-itens').insertAdjacentHTML('beforeend', blocoItemId());
+    $('#pluggy-itens').lastElementChild.querySelector('input').focus();
+    return false;
+  },
+  pluggyRemoverItem: (_, el) => {
+    el.closest('.pluggy-item').remove();
+    if (!$('#pluggy-itens .pluggy-item')) $('#pluggy-itens').insertAdjacentHTML('beforeend', blocoItemId());
+    return false;
+  },
+  desconectarBancos: () => {
+    if (!confirm('Desconectar os bancos deste app? Os lançamentos que já vieram continuam salvos. (Para revogar o acesso de vez, remova também no Meu Pluggy.)')) return false;
+    delete state.integracoes.pluggy;
+    fecharModal();
+    salvar();
+    render();
+    toast('Bancos desconectados.');
+    return false;
+  },
   exportarCsv: () => {
     const linhas = [['Data', 'Descrição', 'Categoria', 'Valor'], ...[...state.transacoes].sort((a, b) => a.data.localeCompare(b.data))
       .map((t) => [fmtData(t.data), t.descricao, t.categoria, t.valor.toFixed(2).replace('.', ',')])];

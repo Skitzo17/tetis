@@ -864,3 +864,23 @@ dialog textarea { overflow-x: hidden; }
 .fin-tip-linha b { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 
+
+/* ---------- Open Finance (Meu Pluggy) ---------- */
+.fin-conectar { display: flex !important; align-items: center; gap: 12px; width: 100%; margin-top: 12px; text-align: left; font: inherit; color: inherit; cursor: pointer; border-style: dashed; }
+.fin-conectar .item-titulo, .fin-conectar .item-sub { display: block; white-space: normal; }
+.fin-bancos { margin-top: 12px; }
+.fin-bancos-lista { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; }
+.fin-bancos-rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fin-bancos-rodape .item-sub { white-space: normal; }
+.chip-erro { background: color-mix(in srgb, var(--negativo) 15%, transparent) !important; color: var(--negativo) !important; }
+@keyframes girar { to { transform: rotate(-360deg); } }
+.ic.girando { animation: girar .9s linear infinite; }
+.pluggy-passos { margin-bottom: 14px; }
+.pluggy-passos ol { margin: 10px 0 0; padding-left: 20px; color: var(--texto-2); font-size: 13.5px; display: grid; gap: 6px; }
+.pluggy-passos ol b, .pluggy-passos p b { color: var(--texto); }
+.pluggy-itens { display: grid; gap: 8px; margin: 8px 0 10px; }
+.pluggy-item { display: flex; gap: 6px; align-items: center; }
+.pluggy-item input { flex: 1; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; }
+.pluggy-resultado { font-size: 13.5px; }
+.pluggy-resultado p { margin: 8px 0 4px; }
+.pluggy-resultado ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
