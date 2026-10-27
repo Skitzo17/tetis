@@ -1921,6 +1921,7 @@ const acoes = {
   // ---------- Open Finance (openfinance.js) ----------
   conectarBanco: () => formConectarBanco(),
   sincronizarBancos: () => { sincronizarBancos(); return false; },
+  rebuscarHistorico: () => { ui.forcarHistorico = true; sincronizarBancos(); return false; },
   pluggyTestar: () => { testarPluggy(); return false; },
   pluggyWidget: () => { conectarPeloWidget(); return false; },
   pluggyAdicionarItem: () => {

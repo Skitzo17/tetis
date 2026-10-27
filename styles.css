@@ -889,3 +889,4 @@ dialog textarea { overflow-x: hidden; }
 .fin-saldos { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; margin-top: 8px; }
 .fin-saldos span { display: block; font-size: 12.5px; color: var(--texto-2); }
 .fin-saldos b { display: block; margin-top: 2px; font-size: clamp(20px, 5.5vw, 26px); font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.fin-rebuscar { font-size: 12px; padding: 0 2px; font-weight: 500; }
