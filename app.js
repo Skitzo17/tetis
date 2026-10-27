@@ -238,13 +238,13 @@ function diaISO(offset = 0) {
 }
 function hoje() { return diaISO(0); }
 
-const svgIcone = (path) => `<svg viewBox="0 0 24 24">${path}</svg>`;
+// Ícones dos cards (Lucide, ver icones.js)
 const ICONES = {
-  peso: svgIcone('<path d="M3 17l5-5 4 4 8-8M15 8h5v5"/>'),
-  treino: svgIcone('<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>'),
-  financas: svgIcone('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/>'),
-  pessoa: svgIcone('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
-  camera: svgIcone('<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/>'),
+  peso: ic('scale'),
+  treino: ic('dumbbell'),
+  financas: ic('wallet'),
+  pessoa: ic('user'),
+  camera: ic('camera'),
 };
 const fmtData = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '');
 const fmtDataCurta = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
@@ -546,7 +546,7 @@ function cardCheckin() {
   return `
     <div class="card checkin">
       <button class="btn-checkin ${feitoHoje ? 'feito' : ''}" data-act="alternarDia" data-v="${hj}">
-        <span class="btn-checkin-icone">${feitoHoje ? '✓' : '+'}</span>
+        <span class="btn-checkin-icone">${ic(feitoHoje ? 'check' : 'plus')}</span>
         <span><b>${feitoHoje ? 'Check-in feito hoje' : 'Fazer check-in hoje'}</b><small>${feitoHoje ? 'Toque para desfazer' : 'Marque que você foi à academia'}</small></span>
       </button>
       <div class="stats checkin-stats">
@@ -555,9 +555,9 @@ function cardCheckin() {
         <div class="stat"><span>Sequência</span><b>${semanas} ${semanas === 1 ? 'semana' : 'semanas'}</b></div>
       </div>
       <div class="cal-nav">
-        <button class="btn-x" data-act="calMes" data-v="-1" aria-label="Mês anterior">‹</button>
+        <button class="btn-x" data-act="calMes" data-v="-1" aria-label="Mês anterior">${ic('chevron-left')}</button>
         <b>${MESES[mes - 1]} ${ano}</b>
-        <button class="btn-x" data-act="calMes" data-v="1" aria-label="Próximo mês" ${ui.calMes >= hj.slice(0, 7) ? 'disabled' : ''}>›</button>
+        <button class="btn-x" data-act="calMes" data-v="1" aria-label="Próximo mês" ${ui.calMes >= hj.slice(0, 7) ? 'disabled' : ''}>${ic('chevron-right')}</button>
       </div>
       <div class="cal">${celulas}</div>
       <p class="dica" style="margin:10px 0 0">Toque em um dia para marcar ou desmarcar.</p>
@@ -565,7 +565,7 @@ function cardCheckin() {
 }
 
 function cabecalhoTreino() {
-  const abas = [['meu', 'Meu treino'], ['grupos', '👥 Grupos']];
+  const abas = [['meu', `${ic('dumbbell')} Meu treino`], ['grupos', `${ic('users')} Grupos`]];
   return `
     <h1 class="titulo">Treino</h1>
     <p class="subtitulo">${((n) => `${n} ${n === 1 ? 'treino' : 'treinos'} este mês`)(state.sessoes.filter((s) => s.data.startsWith(hoje().slice(0, 7))).length)}</p>
@@ -619,7 +619,7 @@ function vTreino() {
       <button class="card link plano-exemplo" data-act="carregarPlano">
         <span class="card-icone">${ICONES.treino}</span>
         <span class="item-corpo"><span class="item-titulo">Carregar plano de exemplo</span><span class="item-sub">Seg a sex · ABC + U/L em aparelhos, sem agachamento</span></span>
-        <span class="muted">›</span>
+        <span class="muted">${ic('chevron-right')}</span>
       </button>`}
 
     ${nomesEx.length ? `
@@ -674,7 +674,7 @@ function vSessao() {
             <div class="item-titulo ex-nome">${esc(i.nome)}</div>
             ${i.obs ? `<div class="ex-obs">${esc(i.obs)}</div>` : ''}
             <div class="ex-meta">
-              ${i.descanso ? `<button class="chip chip-timer" data-act="descanso" data-v="${esc(i.descanso)}" aria-label="Iniciar descanso de ${esc(i.descanso)} segundos">⏱ ${esc(i.descanso)}s</button>` : ''}
+              ${i.descanso ? `<button class="chip chip-timer" data-act="descanso" data-v="${esc(i.descanso)}" aria-label="Iniciar descanso de ${esc(i.descanso)} segundos">${ic('timer')} ${esc(i.descanso)}s</button>` : ''}
               <span>${ult ? `último: ${num1(ult.carga)} kg em ${fmtDataCurta(ult.data)}` : 'primeira vez'}</span>
             </div>
           </div>
@@ -723,7 +723,7 @@ function vPeso() {
       <div class="stat"><span>${meta ? 'Falta p/ meta' : imc ? 'IMC' : 'Mínimo'}</span><b>${meta && atual ? num1(Math.max(atual.peso - meta, 0)) : imc ? num1(imc) : p.length ? num1(Math.min(...p.map((x) => x.peso))) : '—'}</b></div>
     </div>
     ${atual ? `<div class="card agua">
-      <span class="agua-icone">💧</span>
+      <span class="agua-icone">${ic('droplet')}</span>
       <div class="item-corpo"><div class="item-titulo">Água: ${num1(atual.peso * 0.035)} a ${num1(atual.peso * 0.04)} L por dia</div>
       <div class="item-sub">35–40 ml por kg de peso</div></div>
     </div>` : ''}
@@ -741,7 +741,7 @@ function vPeso() {
         return `<div class="item">
           <div class="item-corpo"><div class="item-titulo">${num1(x.peso)} kg</div><div class="item-sub">${diaSemana(x.data)} ${fmtData(x.data)}</div></div>
           ${ant ? `<span class="item-valor">${variacao(x.peso - ant.peso)}</span>` : ''}
-          <button class="btn-x" data-act="excluirPeso" data-id="${x.id}" aria-label="Excluir">×</button>
+          <button class="btn-x" data-act="excluirPeso" data-id="${x.id}" aria-label="Excluir">${ic('x')}</button>
         </div>`;
       }).join('') : '<p class="vazio">Nenhum registro ainda.</p>'}
     </div>
@@ -751,7 +751,7 @@ function vPeso() {
 // ---------- Notas ----------
 function cardNota(n) {
   return `<button class="card nota" data-act="abrirNota" data-id="${n.id}">
-    <div class="item-titulo">${n.fixada ? '📌 ' : ''}${esc(n.titulo || 'Sem título')}</div>
+    <div class="item-titulo">${n.fixada ? ic('pin', 'ic-inline') : ''}${esc(n.titulo || 'Sem título')}</div>
     <div class="nota-texto">${esc(n.texto)}</div>
     <div class="nota-rodape"><span>${fmtData(new Date(n.atualizada).toISOString().slice(0, 10))}</span></div>
   </button>`;
@@ -796,9 +796,9 @@ function vFinancas() {
 
   return `
     <div class="mes-nav">
-      <button class="btn pequeno" data-act="mes" data-v="-1" aria-label="Mês anterior">‹</button>
+      <button class="btn pequeno" data-act="mes" data-v="-1" aria-label="Mês anterior">${ic('chevron-left')}</button>
       <h1>${MESES[mes - 1]} ${ano}</h1>
-      <button class="btn pequeno" data-act="mes" data-v="1" aria-label="Próximo mês">›</button>
+      <button class="btn pequeno" data-act="mes" data-v="1" aria-label="Próximo mês">${ic('chevron-right')}</button>
     </div>
 
     <div class="stats">
@@ -866,7 +866,7 @@ function vConfig() {
     <a class="card link conta" href="#perfil">
       ${avatarHtml('conta-avatar')}
       <div class="item-corpo"><div class="item-titulo">${esc(nomeExibicao() || 'Seu perfil')}</div><div class="item-sub">Foto, nome, altura e meta de peso</div></div>
-      <span class="muted">›</span>
+      <span class="muted">${ic('chevron-right')}</span>
     </a>`}
 
     <h2 class="secao">Orçamento mensal por categoria</h2>
@@ -1157,13 +1157,13 @@ const AVISO_PRIVACIDADE = `<p class="dica"><b>Os membros do grupo veem:</b> seu 
 
 function vGrupos() {
   if (!NUVEM_ATIVA) {
-    return `<div class="card social-portao"><div class="social-icone">👥</div>
+    return `<div class="card social-portao"><div class="social-icone">${ic('users')}</div>
       <div class="item-titulo">Grupos precisam das contas ativadas</div>
       <p class="dica">Ative o Firebase (veja o README) para criar grupos com seus amigos, competir na frequência e postar fotos.</p></div>`;
   }
   if (!social.gruposCarregados) return '<div class="card"><p class="vazio">Carregando grupos…</p></div>';
   if (!emGrupos()) {
-    return `<div class="card social-portao"><div class="social-icone">👥</div>
+    return `<div class="card social-portao"><div class="social-icone">${ic('users')}</div>
       <div class="item-titulo">Treine em grupo</div>
       <p class="dica">Crie um grupo e convide amigos com um código, ou entre num grupo que já existe.
         Cada grupo tem um ranking de frequência e um feed de fotos, e você pode participar de vários.</p>
@@ -1183,11 +1183,11 @@ function vGrupos() {
       <div class="item-corpo"><div class="item-titulo">${esc(g.nome)}</div>
         <div class="item-sub">${g.membros.length} ${g.membros.length === 1 ? 'membro' : 'membros'} · código <b class="codigo">${g.id}</b></div></div>
       <button class="btn pequeno" data-act="convidar">Convidar</button>
-      <button class="btn-x" data-act="sairGrupo" aria-label="Sair do grupo" title="Sair do grupo">⎋</button>
+      <button class="btn-x" data-act="sairGrupo" aria-label="Sair do grupo" title="Sair do grupo">${ic('log-out')}</button>
     </div>
     <div class="segmento segmento-largo" style="margin:12px 0">
-      <button data-act="grupoAba" data-v="ranking" class="${ui.grupoAba === 'ranking' ? 'ativo' : ''}">🏆 Ranking</button>
-      <button data-act="grupoAba" data-v="feed" class="${ui.grupoAba === 'feed' ? 'ativo' : ''}">📷 Feed</button>
+      <button data-act="grupoAba" data-v="ranking" class="${ui.grupoAba === 'ranking' ? 'ativo' : ''}">${ic('trophy')} Ranking</button>
+      <button data-act="grupoAba" data-v="feed" class="${ui.grupoAba === 'feed' ? 'ativo' : ''}">${ic('camera')} Feed</button>
     </div>
     ${!social.carregado ? '<div class="card"><p class="vazio">Carregando…</p></div>' : ui.grupoAba === 'feed' ? vFeed(g) : vRanking()}
   `;
@@ -1234,7 +1234,7 @@ function vRanking() {
           <span class="ranking-pos">${medalha(p) || p.pos + 'º'}</span>
           ${avatarDe(p, 'conta-avatar')}
           <div class="item-corpo"><div class="item-titulo">${esc(p.nome)}${p.uid === conta.usuario.uid ? ' <span class="chip filtro">você</span>' : ''}</div>
-            <div class="item-sub">${p.foiHoje ? '✅ foi hoje' : 'ainda não foi hoje'}</div></div>
+            <div class="item-sub">${p.foiHoje ? `<span class="foi-hoje">${ic('circle-check', 'ic-inline')} foi hoje</span>` : 'ainda não foi hoje'}</div></div>
           <span class="item-valor">${p.n} ${p.n === 1 ? 'dia' : 'dias'}</span>
         </div>`).join('') || '<p class="vazio">Ninguém no ranking ainda.</p>'}
     </div>
@@ -1246,7 +1246,7 @@ function vFeed(g) {
   const eu = conta.usuario.uid;
   const souCriador = g.criador === eu;
   return `
-    <button class="btn primario bloco" data-act="novoPost" style="margin-bottom:12px">📷 Postar foto</button>
+    <button class="btn primario bloco" data-act="novoPost" style="margin-bottom:12px">${ic('image-plus')} Postar foto</button>
     ${social.feed.map((p) => {
       const curtiu = (p.curtidas || []).includes(eu);
       const nCurt = (p.curtidas || []).length;
@@ -1254,14 +1254,14 @@ function vFeed(g) {
         <header class="post-topo">
           ${avatarDe(p, 'conta-avatar')}
           <div class="item-corpo"><div class="item-titulo">${esc(p.nome)}</div><div class="item-sub">${tempoRelativo(p.criado)}</div></div>
-          ${p.uid === eu || souCriador ? `<button class="btn-x" data-act="apagarPost" data-id="${p.id}" aria-label="Apagar post">×</button>` : ''}
+          ${p.uid === eu || souCriador ? `<button class="btn-x" data-act="apagarPost" data-id="${p.id}" aria-label="Apagar post">${ic('x')}</button>` : ''}
         </header>
         ${social.fotos[p.id] ? `<img class="post-foto" src="${social.fotos[p.id]}" alt="Foto de ${esc(p.nome)}" loading="lazy" data-post="${p.id}">` : ''}
         ${p.legenda ? `<p class="post-legenda">${esc(p.legenda)}</p>` : ''}
         <footer class="post-acoes">
           <button class="post-btn ${curtiu ? 'curtiu' : ''}" data-act="curtir" data-id="${p.id}" aria-pressed="${curtiu}">
-            <span class="coracao">${curtiu ? '❤️' : '🤍'}</span> ${nCurt || ''}</button>
-          <button class="post-btn" data-act="verComentarios" data-id="${p.id}">💬 ${p.nComentarios || ''}</button>
+            <span class="coracao">${ic('heart')}</span> ${nCurt || ''}</button>
+          <button class="post-btn" data-act="verComentarios" data-id="${p.id}">${ic('message-circle')} ${p.nComentarios || ''}</button>
         </footer>
       </article>`;
     }).join('') || '<div class="card"><p class="vazio">Nenhum post ainda. Que tal ser o primeiro?</p></div>'}
@@ -1273,7 +1273,7 @@ function formPost(titulo = 'Postar foto') {
   const nomes = social.grupos.map((g) => g.nome).join(', ');
   abrirModal(titulo, `
     <label class="post-escolher" id="post-preview">
-      <span class="post-escolher-txt">📷<br>Tirar ou escolher foto</span>
+      <span class="post-escolher-txt">${ic('image-plus', 'ic-grande')}<br>Tirar ou escolher foto</span>
       <input type="file" name="foto" id="post-foto" accept="image/*" required hidden>
     </label>
     <label class="campo"><span>Legenda (opcional)</span><textarea name="legenda" rows="2" maxlength="300" placeholder="Treino de hoje concluído!"></textarea></label>
@@ -1331,7 +1331,7 @@ async function carregarComentarios(g, postId) {
       <div class="comentario">
         ${avatarDe(c, 'avatar-mini')}
         <div class="item-corpo"><b>${esc(c.nome)}</b> <span class="muted">${tempoRelativo(c.criado)}</span><div>${esc(c.texto)}</div></div>
-        ${podeApagar(c) ? `<button type="button" class="btn-x" data-act="apagarComentario" data-post="${postId}" data-id="${c.id}" aria-label="Apagar comentário">×</button>` : ''}
+        ${podeApagar(c) ? `<button type="button" class="btn-x" data-act="apagarComentario" data-post="${postId}" data-id="${c.id}" aria-label="Apagar comentário">${ic('x')}</button>` : ''}
       </div>`).join('') || '<p class="muted" style="margin:0">Nenhum comentário ainda.</p>';
     caixa.scrollTop = caixa.scrollHeight;
   } catch (e) {

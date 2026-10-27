@@ -677,3 +677,28 @@ dialog h2 { margin: 0 0 18px; font-size: 19px; font-weight: 800; letter-spacing:
   *, *::before, *::after, ::backdrop { animation-duration: 1ms !important; animation-delay: 0s !important; transition-duration: 1ms !important; }
   html { scroll-behavior: auto; }
 }
+
+/* ---------- Ícones Lucide (icones.js) ---------- */
+.ic { width: 1.15em; height: 1.15em; flex: none; vertical-align: -0.2em; }
+.ic-inline { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+.ic-grande { width: 32px; height: 32px; margin-bottom: 4px; }
+.btn .ic, .segmento button .ic { width: 16px; height: 16px; }
+.segmento button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn-x { display: inline-grid; place-items: center; }
+.btn-x .ic { width: 18px; height: 18px; }
+.mes-nav .btn .ic { width: 18px; height: 18px; }
+.btn-checkin-icone .ic { width: 22px; height: 22px; stroke-width: 2.5; }
+.social-portao .social-icone { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto 10px; border-radius: 14px; background: var(--superficie-2); color: var(--texto); }
+.social-portao .social-icone .ic { width: 28px; height: 28px; }
+.agua-icone { color: #0ea5e9; }
+.agua-icone .ic { width: 20px; height: 20px; }
+.chip-timer { display: inline-flex; align-items: center; gap: 4px; }
+.chip-timer .ic { width: 13px; height: 13px; }
+.post-btn .ic { width: 20px; height: 20px; }
+.coracao { display: inline-grid; place-items: center; }
+.post-btn.curtiu .coracao .ic { fill: #ef4444; stroke: #ef4444; }
+.foi-hoje { color: var(--positivo); }
+.nota .ic-inline { color: var(--texto-2); }
+.timer-btn { display: inline-grid; place-items: center; }
+.timer-btn .ic { width: 16px; height: 16px; }
+.post-escolher-txt::first-line { font-size: inherit; }
