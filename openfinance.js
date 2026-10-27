@@ -102,6 +102,15 @@ function categoriaPluggy(t, valor) {
 
 const PAGAMENTO_FATURA = /pagamento.{0,20}fatura|pgto.{0,10}fatura|fatura.{0,10}cart|credit card payment|card bill/i;
 
+// Guardar na caixinha / aplicar / resgatar só muda o dinheiro de lugar: não é gasto nem receita.
+// O valor guardado vem do saldo real dos investimentos (ver saldos em sincronizarBancos).
+const MOV_GUARDADO_DESC = /aplica[cç][aã]o|resgate|caixinha|dinheiro guardado|dinheiro resgatado|guardad[oa] na|\brdb\b|\bcdb\b|\blci\b|\blca\b|tesouro direto|poupan[cç]a/i;
+const MOV_GUARDADO_CAT = /^(investments?|fixed income|variable income|mutual funds?|savings|pension|investimentos?)\b/i;
+function ehMovimentoGuardado(descricao = '', categoria = '') {
+  if (/rendimento|juros|dividend|yield|interest|income/i.test(`${descricao} ${categoria}`) && !/fixed income|variable income/i.test(categoria)) return false;
+  return MOV_GUARDADO_DESC.test(descricao) || MOV_GUARDADO_CAT.test(categoria || '');
+}
+
 // Converte uma transação da Pluggy para o formato do app (ou null para ignorar)
 function converterTransacao(tp, conta) {
   if (tp.status && tp.status !== 'POSTED') return null; // pendentes mudam de id ao confirmar
@@ -111,13 +120,14 @@ function converterTransacao(tp, conta) {
   const descricao = (tp.description || tp.descriptionRaw || 'Sem descrição').trim();
   // Pagar a fatura aparece na conta E já existem as compras do cartão: ignora para não contar duas vezes
   if (PAGAMENTO_FATURA.test(`${descricao} ${tp.category || ''}`)) return null;
+  if (ehMovimentoGuardado(descricao, tp.category)) return null;
   // Cartão: compra vem positiva (vira despesa); conta: débito já vem negativo
   const valor = Math.round((cartao ? -bruto : bruto) * 100) / 100;
   const categoria = categoriaPluggy({ descricao, categoria: tp.category }, valor);
   if (categoria === null) return null;
   return {
     id: uid(), data: String(tp.date).slice(0, 10), descricao, valor, categoria,
-    origem: 'openfinance', conta: conta.marketingName || conta.name || '', chave: `p:${tp.id}`,
+    origem: 'openfinance', conta: conta.marketingName || conta.name || '', chave: `p:${tp.id}`, catPluggy: tp.category || '',
   };
 }
 
@@ -132,9 +142,12 @@ async function sincronizarBancos({ silencioso = false } = {}) {
     // Primeira vez: últimos 12 meses (o máximo do Open Finance). Depois: desde a última sincronização, com folga de 10 dias
     const de = cfg.ultimaSync ? diaISO(-Math.min(365, Math.ceil((Date.now() - cfg.ultimaSync) / 864e5) + 10)) : diaISO(-365);
     const ate = hoje();
+    // Limpa aplicações/resgates que entraram como gasto/receita em versões anteriores
+    state.transacoes = state.transacoes.filter((t) => !(t.origem === 'openfinance' && ehMovimentoGuardado(t.descricao, t.catPluggy)));
     const existentes = new Set(state.transacoes.map((t) => t.chave).filter(Boolean));
     let novos = 0, contas = 0;
     const problemas = [];
+    const saldos = { contas: [], investimentos: [] };
     for (const item of cfg.itens) {
       try {
         const info = await pluggyChamar(`/items/${item.id}`, { apiKey });
@@ -146,6 +159,17 @@ async function sincronizarBancos({ silencioso = false } = {}) {
         if (!lista.length && !expirou) problemas.push(`${item.banco || item.id.slice(0, 8)}: nenhuma conta (o banco está vinculado ao conector "MeuPluggy" no Dashboard?)`);
         // Itens criados pelo Meu Pluggy podem vir com o nome do conector, não do banco: usa o nome da conta
         if (lista.length && (!item.banco || /meu\s*pluggy/i.test(item.banco))) item.banco = lista[0].marketingName || lista[0].name || item.banco;
+        // Saldos reais: conta corrente, poupança, fatura do cartão e investimentos (caixinhas entram aqui)
+        for (const c of lista) {
+          saldos.contas.push({ nome: c.marketingName || c.name || '', tipo: c.type, subtipo: c.subtype || '', saldo: Number(c.balance) || 0 });
+        }
+        try {
+          const inv = await pluggyChamar(`/investments?itemId=${item.id}`, { apiKey });
+          for (const i of inv.results || []) {
+            if (i.status && i.status !== 'ACTIVE') continue;
+            saldos.investimentos.push({ nome: i.name || i.type || 'Investimento', tipo: i.type || '', saldo: Number(i.balance ?? i.amount) || 0 });
+          }
+        } catch (e) { /* banco sem investimentos ou sem permissão: segue só com as contas */ }
         for (const conta of lista) {
           contas++;
           for (const tp of await pluggyTransacoes(apiKey, conta.id, de, ate)) {
@@ -162,6 +186,7 @@ async function sincronizarBancos({ silencioso = false } = {}) {
     }
     cfg.ultimaSync = Date.now();
     cfg.ultimoResultado = { novos, contas, problemas, quando: Date.now() };
+    if (saldos.contas.length) cfg.saldos = { ...saldos, quando: Date.now() };
     salvar();
     if (!silencioso || novos) toast(novos ? `${novos} lançamentos novos dos seus bancos.` : 'Tudo em dia: nenhum lançamento novo.');
     if (problemas.length && !silencioso) toast(problemas[0]);

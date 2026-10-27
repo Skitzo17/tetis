@@ -30,19 +30,39 @@ function brlCurto(v) {
 }
 const somarMes = (m, n) => { const d = new Date(+m.slice(0, 4), +m.slice(5) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 
-// Um resumo por mês, do primeiro lançamento até o mês atual, com o acumulado guardado
+// Saldos reais vindos do banco (Open Finance), se a pessoa conectou: conta, guardado e fatura
+function saldosReais() {
+  const s = typeof pluggyConectado === 'function' && pluggyConectado() ? pluggyConfig().saldos : null;
+  if (!s?.contas?.length) return null;
+  const soma = (lista) => lista.reduce((a, x) => a + x.saldo, 0);
+  const naConta = soma(s.contas.filter((c) => c.tipo === 'BANK' && c.subtipo !== 'SAVINGS_ACCOUNT'));
+  const poupanca = soma(s.contas.filter((c) => c.subtipo === 'SAVINGS_ACCOUNT'));
+  const fatura = soma(s.contas.filter((c) => c.tipo === 'CREDIT'));
+  const guardado = poupanca + soma(s.investimentos || []);
+  return { naConta, guardado, fatura, total: naConta + guardado, quando: s.quando, investimentos: s.investimentos || [], temCartao: s.contas.some((c) => c.tipo === 'CREDIT') };
+}
+
+// Um resumo por mês, do primeiro lançamento até o mês atual, com o acumulado.
+// Com o banco conectado, o último mês bate com o saldo real (conta + guardado) e os anteriores são
+// reconstruídos para trás pelo que sobrou em cada mês; sem banco, soma a partir do valor informado em "Ajustar".
 function historicoMensal() {
   const ts = state.transacoes;
   if (!ts.length) return [];
   let mes = ts.reduce((m, t) => (t.data < m ? t.data : m), ts[0].data).slice(0, 7);
   const fim = [hoje().slice(0, 7), ...ts.map((t) => t.data.slice(0, 7))].sort().at(-1);
   const meses = [];
-  let acumulado = parseNum(state.config.saldoInicial) || 0;
   while (mes <= fim) {
     const r = resumoMes(mes);
-    acumulado += r.saldo;
-    meses.push({ mes, receitas: r.receitas, despesas: r.despesas, saldo: r.saldo, acumulado, porCat: r.porCat });
+    meses.push({ mes, receitas: r.receitas, despesas: r.despesas, saldo: r.saldo, porCat: r.porCat });
     mes = somarMes(mes, 1);
+  }
+  const real = saldosReais();
+  if (real) {
+    let acumulado = real.total;
+    for (let i = meses.length - 1; i >= 0; i--) { meses[i].acumulado = acumulado; acumulado -= meses[i].saldo; }
+  } else {
+    let acumulado = parseNum(state.config.saldoInicial) || 0;
+    for (const m of meses) { acumulado += m.saldo; m.acumulado = acumulado; }
   }
   return meses;
 }
@@ -79,19 +99,22 @@ function graficoGuardado(meses) {
   const X = (i) => padX + (meses.length === 1 ? (W - 2 * padX) / 2 : (i / (meses.length - 1)) * (W - 2 * padX));
   const Y = (v) => top + (1 - (v - lo) / (hi - lo || 1)) * (H - top - bot);
   const P = meses.map((m, i) => [X(i), Y(m.acumulado)]);
-  const d = P.length > 1 ? caminhoSuave(P) : `M${P[0][0] - 20},${P[0][1]}L${P[0][0] + 20},${P[0][1]}`;
+  // Com um mês só, desenha uma linha reta de ponta a ponta (ainda não há evolução para mostrar)
+  if (P.length === 1) P.unshift([padX, P[0][1]]), (P[1][0] = W - padX);
+  const d = caminhoSuave(P);
   const ult = P.at(-1);
   const zero = lo < 0 ? `<line class="fin-zero" x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}"/>` : '';
   const passo = Math.max(1, Math.ceil(meses.length / 6));
   const rotulos = meses.map((m, i) => (i % passo === 0 || i === meses.length - 1)
     ? `<text class="fin-eixo" x="${X(i)}" y="${H - 6}" text-anchor="${i === 0 && meses.length > 1 ? 'start' : i === meses.length - 1 && meses.length > 1 ? 'end' : 'middle'}">${MESES_CURTOS[+m.mes.slice(5) - 1]}${m.mes.endsWith('-01') || i === 0 ? '/' + m.mes.slice(2, 4) : ''}</text>` : '').join('');
+  const rotuloTotal = saldosReais() ? 'Conta + guardado' : 'Guardado';
   const alvos = meses.map((m, i) => `<circle class="fin-alvo" cx="${X(i)}" cy="${Y(m.acumulado)}" r="14" data-tip="${dicaJson(nomeMes(m.mes), [
-    ['Guardado', brl(m.acumulado), 'var(--grafico)'], ['No mês', `${m.saldo >= 0 ? '+' : '−'}${brl(Math.abs(m.saldo))}`],
+    [rotuloTotal, brl(m.acumulado), 'var(--grafico)'], ['Sobrou no mês', `${m.saldo >= 0 ? '+' : '−'}${brl(Math.abs(m.saldo))}`],
   ])}"/>`).join('');
   return `<svg class="fin-grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolução do total guardado">
     <defs><linearGradient id="finArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fin-grad-a"/><stop offset="1" class="fin-grad-b"/></linearGradient></defs>
     ${zero}
-    ${P.length > 1 ? `<path class="fin-area" d="${d}L${ult[0]},${H - bot}L${P[0][0]},${H - bot}Z"/>` : ''}
+    <path class="fin-area" d="${d}L${ult[0]},${H - bot}L${P[0][0]},${H - bot}Z"/>
     <path class="fin-linha" d="${d}" pathLength="1"/>
     <circle class="fin-ponto" cx="${ult[0]}" cy="${ult[1]}" r="4.5"/>
     ${rotulos}${alvos}
@@ -179,6 +202,7 @@ function visaoFinancas() {
   const atual = meses.find((m) => m.mes === ui.mes) || meses.at(-1);
   const anterior = meses[meses.indexOf(atual) - 1];
   const total = meses.at(-1).acumulado;
+  const real = saldosReais();
   const periodo = ui.mapaPeriodo;
   const porCat = {};
   const doPeriodo = periodo === 'mes' ? [atual] : periodo === 'ano' ? meses.filter((m) => m.mes.startsWith(ui.mes.slice(0, 4))) : meses;
@@ -190,15 +214,30 @@ function visaoFinancas() {
 
   return `
     <div class="fin-bento">
+      ${real ? `
+      <section class="card fin-card fin-guardado">
+        <div class="fin-card-topo">
+          <span class="card-label">Seu dinheiro hoje</span>
+          <span class="muted fin-legenda-mini">do banco · ${tempoRelativo(real.quando)}</span>
+        </div>
+        <div class="fin-saldos">
+          <div><span>Na conta</span><b class="${real.naConta < 0 ? 'neg' : ''}" data-contar="${real.naConta}" data-chave="naConta">${brl(real.naConta)}</b></div>
+          <div data-tip="${dicaJson('Guardado', real.investimentos.length ? real.investimentos.map((i) => [i.nome, brl(i.saldo)]) : [['Caixinhas e investimentos', brl(real.guardado)]])}">
+            <span>Guardado</span><b class="pos" data-contar="${real.guardado}" data-chave="guardadoReal">${brl(real.guardado)}</b></div>
+          ${real.temCartao ? `<div><span>Fatura do cartão</span><b class="neg" data-contar="${real.fatura}" data-chave="fatura">${brl(real.fatura)}</b></div>` : ''}
+        </div>
+        <div class="card-sub" style="margin-top:10px">Conta + guardado ao longo do tempo · <span class="${atual.saldo >= 0 ? 'pos' : 'neg'}">${atual.saldo >= 0 ? '▲' : '▼'} ${brl(Math.abs(atual.saldo))}</span> em ${MESES[+atual.mes.slice(5) - 1].toLowerCase()}</div>
+        <div class="fin-area-grafico">${graficoGuardado(meses)}</div>
+      </section>` : `
       <section class="card fin-card fin-guardado">
         <div class="fin-card-topo">
           <span class="card-label">Guardado no total</span>
           <button class="link-btn fin-ajustar" data-act="ajustarGuardado">Ajustar</button>
         </div>
         <div class="fin-numero ${total < 0 ? 'neg' : ''}" data-contar="${total}" data-chave="guardado">${brl(total)}</div>
-        <div class="card-sub"><span class="${atual.saldo >= 0 ? 'pos' : 'neg'}">${atual.saldo >= 0 ? '▲' : '▼'} ${brl(Math.abs(atual.saldo))}</span> em ${MESES[+atual.mes.slice(5) - 1].toLowerCase()}</div>
+        <div class="card-sub"><span class="${atual.saldo >= 0 ? 'pos' : 'neg'}">${atual.saldo >= 0 ? '▲' : '▼'} ${brl(Math.abs(atual.saldo))}</span> em ${MESES[+atual.mes.slice(5) - 1].toLowerCase()} · estimado pelos lançamentos</div>
         <div class="fin-area-grafico">${graficoGuardado(meses)}</div>
-      </section>
+      </section>`}
 
       <section class="card fin-card">
         <div class="fin-card-topo"><span class="card-label">Gastos por mês</span><span class="muted fin-legenda-mini">toque numa barra para abrir o mês</span></div>
