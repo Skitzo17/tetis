@@ -218,6 +218,8 @@ window.Tetis = {
 
 // Estado só da interface (não precisa persistir)
 const ui = { pesoPeriodo: '90', buscaNotas: '', mes: hoje().slice(0, 7), filtroCat: '', exercicio: '', calMes: hoje().slice(0, 7), ultimoCheckin: '',
+  // Preferência do aparelho (não sincroniza): quem está do lado não vê seus valores neste celular
+  ocultarValores: (() => { try { return localStorage.getItem('tetis-ocultar') === '1'; } catch (e) { return false; } })(),
   modoLogin: 'entrar', emailLogin: '', entrando: false, treinoAba: 'meu', rankPeriodo: 'mes',
   grupoAtual: '', grupoAba: 'ranking', mapaPeriodo: 'mes' };
 
@@ -255,7 +257,9 @@ const diaSemana = (iso) => DIAS[new Date(iso + 'T12:00').getDay()];
 const diasDesde = (iso) => Math.floor((Date.parse(hoje()) - Date.parse(iso)) / 864e5);
 
 const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-const brl = (v) => moeda.format(v || 0);
+// Com "esconder valores" ligado (olho no topo), todo valor em reais aparece mascarado
+const VALOR_OCULTO = 'R$ ••••';
+const brl = (v) => (ui.ocultarValores ? VALOR_OCULTO : moeda.format(v || 0));
 const num1 = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 
 function parseNum(s) {
@@ -1395,6 +1399,11 @@ function render(animar = false) {
   const aba = rota === 'sessao' ? 'treino' : rota;
   document.querySelectorAll('.abas a').forEach((a) => a.classList.toggle('ativa', a.dataset.aba === aba));
   $('#avatar-topo').innerHTML = precisaLogin ? '' : avatarHtml('avatar-topo');
+  const olho = $('#btn-ocultar');
+  olho.innerHTML = ic(ui.ocultarValores ? 'eye-off' : 'eye');
+  olho.setAttribute('aria-label', ui.ocultarValores ? 'Mostrar valores' : 'Esconder valores');
+  olho.title = olho.getAttribute('aria-label');
+  olho.classList.toggle('ativo', ui.ocultarValores);
   if (NUVEM_ATIVA) atualizarEscutaSocial();
   animarNumeros(); // valores das finanças "contam" até o número novo
   // Ao abrir Finanças, busca lançamentos novos dos bancos (se a última vez foi há mais de 12 h)
@@ -1920,6 +1929,11 @@ const acoes = {
   },
   // ---------- Open Finance (openfinance.js) ----------
   conectarBanco: () => formConectarBanco(),
+  alternarValores: () => {
+    ui.ocultarValores = !ui.ocultarValores;
+    try { localStorage.setItem('tetis-ocultar', ui.ocultarValores ? '1' : '0'); } catch (e) { /* sem armazenamento: vale só até fechar */ }
+    toast(ui.ocultarValores ? 'Valores escondidos.' : 'Valores visíveis.');
+  },
   sincronizarBancos: () => { sincronizarBancos(); return false; },
   rebuscarHistorico: () => { ui.forcarHistorico = true; sincronizarBancos(); return false; },
   pluggyTestar: () => { testarPluggy(); return false; },

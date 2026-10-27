@@ -890,3 +890,9 @@ dialog textarea { overflow-x: hidden; }
 .fin-saldos span { display: block; font-size: 12.5px; color: var(--texto-2); }
 .fin-saldos b { display: block; margin-top: 2px; font-size: clamp(20px, 5.5vw, 26px); font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 .fin-rebuscar { font-size: 12px; padding: 0 2px; font-weight: 500; }
+
+/* Botão "esconder valores" (olho) no topo */
+#btn-ocultar { border: 0; background: none; cursor: pointer; padding: 0; font: inherit; }
+#btn-ocultar .ic { width: 20px; height: 20px; }
+#btn-ocultar:hover svg, #btn-ocultar:active svg { transform: none; }
+#btn-ocultar.ativo { color: var(--texto); background: var(--superficie-2); }

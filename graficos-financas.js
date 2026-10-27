@@ -23,6 +23,7 @@ function tintaCategoria(c) {
 const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const nomeMes = (m) => `${MESES[+m.slice(5) - 1]} ${m.slice(0, 4)}`;
 function brlCurto(v) {
+  if (ui.ocultarValores) return VALOR_OCULTO;
   const a = Math.abs(v), s = v < 0 ? '−' : '';
   if (a >= 1e6) return `${s}R$ ${(a / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`;
   if (a >= 1e3) return `${s}R$ ${(a / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;
@@ -267,7 +268,7 @@ function animarNumeros() {
     const alvo = Number(el.dataset.contar), chave = el.dataset.chave;
     const de = ultimosNumeros[chave] ?? 0;
     ultimosNumeros[chave] = alvo;
-    if (reduzir || de === alvo) { el.textContent = brl(alvo); return; }
+    if (reduzir || de === alvo || ui.ocultarValores) { el.textContent = brl(alvo); return; }
     const t0 = performance.now(), dur = 900;
     const passo = (agora) => {
       const t = Math.min(1, (agora - t0) / dur), e = 1 - Math.pow(1 - t, 3);
