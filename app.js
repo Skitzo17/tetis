@@ -1588,11 +1588,18 @@ function formTransacao(t) {
     if (!valor) throw new Error('Informe um valor válido.');
     const dados = { data: d.data, descricao: d.descricao.trim(), valor, categoria: d.categoria };
     if (t) {
-      // Aprende a categoria: próximos lançamentos com a mesma descrição já vêm certos
+      // Aprende a categoria: os lançamentos iguais (mesma descrição, ainda não corrigidos à mão) mudam junto,
+      // e os próximos já vêm certos
       if (t.categoria !== d.categoria) {
         const k = chaveDesc(dados.descricao);
         state.regras[k] = d.categoria;
-        state.transacoes.forEach((x) => { if (x !== t && x.categoria === 'Outros' && chaveDesc(x.descricao) === k) x.categoria = d.categoria; });
+        dados.catManual = true;
+        let iguais = 0;
+        state.transacoes.forEach((x) => {
+          if (x === t || x.catManual || x.categoria === d.categoria || chaveDesc(x.descricao) !== k || (x.valor < 0) !== (valor < 0)) return;
+          if (x.categoria === t.categoria || x.categoria === 'Outros') { x.categoria = d.categoria; iguais++; }
+        });
+        if (iguais) toast(`${iguais} ${iguais === 1 ? 'lançamento igual também foi' : 'lançamentos iguais também foram'} para ${d.categoria}.`);
       }
       Object.assign(t, dados);
     } else {
