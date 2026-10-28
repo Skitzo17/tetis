@@ -1080,6 +1080,11 @@ function vConfig() {
         <button class="btn" data-act="exportarCsv">Exportar finanças (CSV)</button>
       </div>
     </div>
+    <h2 class="secao">Limpar</h2>
+    <div class="card">
+      <p class="dica">Apaga os lançamentos que vieram do banco (Open Finance). Os lançamentos criados à mão e importados de extrato continuam.</p>
+      <div class="acoes"><button class="btn perigo" data-act="limparBancos">Apagar lançamentos do banco</button></div>
+    </div>
     <div class="card" id="card-instalar" ${instalarEvento ? '' : 'hidden'}>
       <p class="dica">Instale o app para abrir em tela cheia e usar offline.</p>
       <button class="btn primario" data-act="instalar">Instalar app</button>
@@ -2292,6 +2297,16 @@ const acoes = {
     salvar();
     render();
     toast('Bancos desconectados.');
+    return false;
+  },
+  limparBancos: () => {
+    const n = state.transacoes.filter((t) => t.origem === 'openfinance').length;
+    if (!n) { toast('Não há lançamentos vindos do banco.'); return false; }
+    if (!confirm(`Apagar ${n} lançamentos vindos do banco? Os lançamentos criados à mão e importados de extrato continuam.`)) return false;
+    state.transacoes = state.transacoes.filter((t) => t.origem !== 'openfinance');
+    salvar();
+    render();
+    toast(`${n} lançamentos do banco apagados.`);
     return false;
   },
   exportarCsv: () => {
