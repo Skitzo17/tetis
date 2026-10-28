@@ -14,8 +14,9 @@
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Registrar peso", "url": "./#peso" },
-    { "name": "Treino", "url": "./#treino" },
-    { "name": "Nova nota", "url": "./#notas" }
+    { "name": "Fazer check-in", "short_name": "Check-in", "url": "./?atalho=checkin#treino", "icons": [{ "src": "icons/logo-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "Iniciar treino de hoje", "short_name": "Treino", "url": "./?atalho=treino#treino", "icons": [{ "src": "icons/logo-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "Novo lançamento", "short_name": "Lançamento", "url": "./?atalho=lancamento#financas", "icons": [{ "src": "icons/logo-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "Registrar peso", "short_name": "Peso", "url": "./?atalho=peso#peso", "icons": [{ "src": "icons/logo-96.png", "sizes": "96x96", "type": "image/png" }] }
   ]
 }

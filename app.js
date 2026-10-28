@@ -1408,6 +1408,36 @@ function render(animar = false) {
   animarNumeros(); // valores das finanças "contam" até o número novo
   // Ao abrir Finanças, busca lançamentos novos dos bancos (se a última vez foi há mais de 12 h)
   if (animar && rota === 'financas' && !precisaLogin && (!NUVEM_ATIVA || conta.sincronizada)) sincronizarSeAntigo();
+  // Atalho do ícone (segurar o ícone no Android): roda uma vez, quando os dados da conta já chegaram
+  if (atalhoPendente && !precisaLogin && (!NUVEM_ATIVA || conta.sincronizada)) setTimeout(executarAtalho);
+}
+
+// ---------- Atalhos do ícone (manifest "shortcuts": ./?atalho=...) ----------
+let atalhoPendente = new URLSearchParams(location.search).get('atalho');
+if (atalhoPendente) history.replaceState(null, '', location.pathname + location.hash);
+
+function executarAtalho() {
+  const a = atalhoPendente;
+  atalhoPendente = null;
+  if (!a) return;
+  if (a === 'checkin') {
+    if (location.hash !== '#treino') location.hash = '#treino';
+    if (state.checkins.includes(hoje())) return toast('O check-in de hoje já está feito. 💪');
+    acoes.alternarDia({ v: hoje() });
+    if (!modalAberto()) { salvar(); render(); }
+  } else if (a === 'treino') {
+    if (state.sessaoAtual) { location.hash = '#sessao'; return; }
+    const f = fichaDeHoje();
+    if (!f) { location.hash = '#treino'; return toast('Hoje não tem ficha marcada. Escolha uma para começar.'); }
+    acoes.iniciarTreino({ id: f.id });
+    salvar();
+  } else if (a === 'lancamento') {
+    if (location.hash !== '#financas') location.hash = '#financas';
+    formTransacao(null);
+  } else if (a === 'peso') {
+    if (location.hash !== '#peso') location.hash = '#peso';
+    setTimeout(() => $('#app input[name="peso"]')?.focus(), 350);
+  }
 }
 
 // =====================================================================
