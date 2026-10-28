@@ -2283,8 +2283,10 @@ const acoes = {
     return false;
   },
   desconectarBancos: () => {
-    if (!confirm('Desconectar os bancos deste app? Os lançamentos que já vieram continuam salvos. (Para revogar o acesso de vez, remova também no Meu Pluggy.)')) return false;
+    const vindos = state.transacoes.filter((t) => t.origem === 'openfinance').length;
+    if (!confirm(`Desconectar os bancos deste app? ${vindos} lançamentos vindos dos bancos serão apagados deste app. Lançamentos que você criou ou importou de extrato continuam. (Para revogar o acesso de vez, remova também no Meu Pluggy.)`)) return false;
     delete state.integracoes.pluggy;
+    state.transacoes = state.transacoes.filter((t) => t.origem !== 'openfinance');
     guardarSegredo('');
     fecharModal();
     salvar();
