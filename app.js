@@ -14,10 +14,10 @@ const CATEGORIAS_RECEITA = ['Salário', 'Renda extra', 'Rendimentos', 'Reembolso
 const REGRAS_DESPESA = [
   [/ifood|rappi|restaurante|lanchonete|padaria|pizza|burger|mcdonald|outback|starbucks|cafeteria/i, 'Alimentação'],
   [/supermerc|mercado(?! ?livre|pago)|carrefour|assai|atacad|pao de acucar|hortifruti|guanabara|prezunic|zona sul/i, 'Mercado'],
-  [/uber|99 ?app|99 ?pop|taxi|cabify|posto|combust|shell|ipiranga|estaciona|sem parar|veloe|conectcar|metro|riocard|bilhete/i, 'Transporte'],
+  [/\buber\b|99 ?app|99 ?pop|\btaxi\b|cabify|\bposto\b|combust|\bshell\b|ipiranga|estaciona|sem parar|veloe|conectcar|\bmetro\b|metro rio|riocard|bilhete unico/i, 'Transporte'],
   [/aluguel|condominio|iptu/i, 'Moradia'],
-  [/enel|light s|cedae|sabesp|naturgy|claro|vivo|tim s|internet|energia|telefon/i, 'Contas'],
-  [/farmacia|drogaria|raia|pacheco|drogasil|hospital|clinica|laborat|unimed|amil|odonto/i, 'Saúde'],
+  [/\benel\b|\blight\b|cedae|sabesp|naturgy|\bclaro\b|\bvivo\b|\btim\b|internet|energia eletrica|conta de (luz|agua|gas)|telefon/i, 'Contas'],
+  [/farmacia|drogaria|\braia\b|drogarias? pacheco|drogasil|hospital|clinica|laborat|unimed|\bamil\b|odonto/i, 'Saúde'],
   [/academia|smart ?fit|bodytech|selfit|gympass|wellhub|totalpass|bluefit/i, 'Academia'],
   [/netflix|spotify|prime video|amazon prime|disney|hbo|youtube|apple\.com|icloud|google one|deezer|globoplay|paramount|chatgpt|openai|claude/i, 'Assinaturas'],
   [/cinema|ingresso|steam|playstation|xbox|nintendo/i, 'Lazer'],
@@ -27,7 +27,7 @@ const REGRAS_DESPESA = [
 ];
 const REGRAS_RECEITA = [
   [/salario|proventos|folha|pagamento de salario/i, 'Salário'],
-  [/rendimento|juros|dividend|resgate/i, 'Rendimentos'],
+  [/rendimento|juros|dividend/i, 'Rendimentos'], // "resgate" não é ganho: é o seu dinheiro voltando (e "Resgate Pet Shop" é loja)
   [/estorno|reembolso|devolu/i, 'Reembolso'],
   [/\bpix\b|\bted\b|\bdoc\b|transf/i, 'Transferências'],
 ];
@@ -64,10 +64,43 @@ const conta = {
 const chaveLocal = () => (conta.usuario ? `${STORAGE_KEY}:${conta.usuario.uid}` : STORAGE_KEY);
 const chaveSync = () => `tetis-sync:${conta.usuario.uid}`;
 
+// Confere o formato de tudo o que vem de fora (backup, aparelho, nuvem): só passam as chaves conhecidas,
+// com o tipo certo. Item quebrado (ex.: lançamento sem data) é descartado em vez de travar o app.
+const DATA_OK = /^\d{4}-\d{2}-\d{2}$/;
+function normalizarEstado(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Error('Dados inválidos.');
+  const base = estadoInicial();
+  const lista = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) : []);
+  const objeto = (v, padrao) => (v && typeof v === 'object' && !Array.isArray(v) ? { ...padrao, ...v } : { ...padrao });
+  const datas = (v) => (Array.isArray(v) ? [...new Set(v.filter((x) => typeof x === 'string' && DATA_OK.test(x)))] : []);
+  const temData = (x) => typeof x.data === 'string' && dataValida(x.data);
+  // Mesmo id duas vezes (ex.: item que mudou de ano num aparelho e foi editado no outro): fica o primeiro
+  const unicos = (itens) => { const vistos = new Set(); return itens.filter((x) => x.id == null || (!vistos.has(x.id) && vistos.add(x.id))); };
+  const s = {
+    ...base,
+    config: objeto(d.config, base.config),
+    fichas: lista(d.fichas).map((f) => ({ ...f, nome: String(f.nome ?? ''), exercicios: lista(f.exercicios) })),
+    sessoes: unicos(lista(d.sessoes).filter(temData).map((x) => ({ ...x, itens: lista(x.itens) }))),
+    sessaoAtual: d.sessaoAtual && typeof d.sessaoAtual === 'object' && Array.isArray(d.sessaoAtual.itens) && temData(d.sessaoAtual) ? d.sessaoAtual : null,
+    perfil: objeto(d.perfil, base.perfil),
+    checkins: datas(d.checkins),
+    checkinsNoDia: datas(d.checkinsNoDia),
+    pesos: lista(d.pesos).filter((p) => temData(p) && Number(p.peso) > 0 && Number(p.peso) < 1000),
+    notas: lista(d.notas),
+    transacoes: unicos(lista(d.transacoes).map((t) => (typeof t.valor === 'string' ? { ...t, valor: parseNum(t.valor) } : t))
+      .filter((t) => temData(t) && Number.isFinite(t.valor) && t.valor !== 0)
+      .map((t) => ({ ...t, descricao: String(t.descricao ?? ''), categoria: String(t.categoria || 'Outros') }))),
+    regras: objeto(d.regras, {}),
+    integracoes: objeto(d.integracoes, {}),
+  };
+  if (!s.config.orcamentos || typeof s.config.orcamentos !== 'object' || Array.isArray(s.config.orcamentos)) s.config.orcamentos = {};
+  return s;
+}
+
 function lerLocal(chave) {
   try {
     const bruto = localStorage.getItem(chave);
-    if (bruto) return { ...estadoInicial(), ...JSON.parse(bruto) };
+    if (bruto) return normalizarEstado(JSON.parse(bruto));
   } catch (e) { /* armazenamento indisponível ou corrompido */ }
   return null;
 }
@@ -91,21 +124,83 @@ function salvar() {
 // "base" com o que é pequeno, "perfil" (por causa da foto) e treinos/lançamentos separados por ano.
 function particionar(s) {
   const { sessoes, transacoes, perfil, ...base } = s;
+  // O Client Secret da Pluggy nunca sobe para a nuvem (fica só no aparelho — ver openfinance.js)
+  const pluggy = base.integracoes?.pluggy;
+  if (pluggy?.clientSecret) {
+    if (s === state) guardarSegredo(pluggy.clientSecret);
+    const { clientSecret, ...semSegredo } = pluggy;
+    base.integracoes = { ...base.integracoes, pluggy: semSegredo };
+  }
   const partes = { base, perfil };
   for (const [nome, lista] of [['sessoes', sessoes], ['transacoes', transacoes]]) {
-    for (const item of lista) (partes[`${nome}-${item.data.slice(0, 4)}`] ??= []).push(item);
+    // Item sem data válida (corrompido) não trava a sincronização: fica de fora
+    for (const item of lista) if (DATA_OK.test(item?.data)) (partes[`${nome}-${item.data.slice(0, 4)}`] ??= []).push(item);
   }
   return Object.fromEntries(Object.entries(partes).map(([id, v]) => [id, JSON.stringify(v)]));
 }
 
 function juntar(partesJson) {
-  const s = { ...estadoInicial(), ...(partesJson.base ? JSON.parse(partesJson.base) : {}), sessoes: [], transacoes: [] };
-  if (partesJson.perfil) s.perfil = { ...s.perfil, ...JSON.parse(partesJson.perfil) };
+  // Uma parte corrompida não pode derrubar as outras
+  const ler = (json, padrao) => { try { return json ? JSON.parse(json) : padrao; } catch (e) { return padrao; } };
+  const s = { ...ler(partesJson.base, {}), sessoes: [], transacoes: [] };
+  s.perfil = ler(partesJson.perfil, {});
   for (const [id, json] of Object.entries(partesJson)) {
     const m = id.match(/^(sessoes|transacoes)-/);
-    if (m && json) s[m[1]].push(...JSON.parse(json));
+    const itens = m && ler(json, []);
+    if (Array.isArray(itens)) s[m[1]].push(...itens);
   }
-  return s;
+  return normalizarEstado(s);
+}
+
+// Mesclagem de 3 vias de uma parte que mudou aqui E na nuvem, usando como referência a última versão que os dois tinham:
+// - treinos/lançamentos: item a item pelo id (novos dos dois lados entram; apagado de um lado sai; editado nos dois, vale o daqui);
+// - base/perfil: campo a campo, e as listas (pesos, notas, fichas, check-ins) item a item (ver mesclarLista).
+function mesclarParte(id, localJson, remotoJson, baseJson) {
+  const ler = (j, padrao) => { try { return j ? JSON.parse(j) : padrao; } catch (e) { return undefined; } };
+  const lista = /^(sessoes|transacoes)-/.test(id);
+  const local = ler(localJson, lista ? [] : {}), remoto = ler(remotoJson, lista ? [] : {});
+  // Versão da nuvem ilegível: fica a daqui inteira (nunca apagar o que está aqui por causa de lixo vindo de lá)
+  if (remoto === undefined || (lista && !Array.isArray(remoto))) return localJson;
+  if (local === undefined) return remotoJson;
+  const base = ler(baseJson, lista ? [] : {}) ?? (lista ? [] : {});
+  return JSON.stringify(lista ? mesclarLista(local, remoto, Array.isArray(base) ? base : []) : mesclarObjeto(local, remoto, base));
+}
+
+const ehObjeto = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
+
+// Campo a campo; listas (pesos, notas, fichas, check-ins) item a item; objetos (regras, config, orçamentos) descendo neles
+function mesclarObjeto(local, remoto, base) {
+  const saida = {};
+  for (const k of new Set([...Object.keys(local), ...Object.keys(remoto)])) {
+    const l = local[k], r = remoto[k], b = ehObjeto(base) ? base[k] : undefined;
+    let v;
+    if (igual(l, b)) v = r;
+    else if (igual(r, b)) v = l;
+    else if (Array.isArray(l) && Array.isArray(r)) v = mesclarLista(l, r, Array.isArray(b) ? b : []);
+    else if (ehObjeto(l) && ehObjeto(r)) v = mesclarObjeto(l, r, ehObjeto(b) ? b : {});
+    else v = l;
+    if (v !== undefined) saida[k] = v;
+  }
+  return saida;
+}
+
+const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// 3 vias numa lista: itens com id são comparados pelo id; valores simples (datas de check-in) como conjunto.
+// Novo de qualquer lado entra; apagado de um lado (e não editado do outro) sai; editado dos dois lados, vale o daqui.
+function mesclarLista(local, remoto, base) {
+  const chave = (x) => (x && typeof x === 'object' ? (x.id != null ? `id:${x.id}` : `json:${JSON.stringify(x)}`) : `v:${JSON.stringify(x)}`);
+  const mapa = (lista) => new Map(lista.map((x) => [chave(x), x]));
+  const B = mapa(base), L = mapa(local), R = mapa(remoto);
+  const saida = [];
+  for (const k of new Set([...L.keys(), ...R.keys()])) {
+    const l = L.get(k), r = R.get(k), b = B.get(k);
+    // Mesmo item editado nos dois aparelhos: junta campo a campo (categoria daqui + descrição de lá); conflito no mesmo campo, vale o daqui
+    if (l !== undefined && r !== undefined) saida.push(igual(l, b) ? r : igual(r, b) ? l : ehObjeto(l) && ehObjeto(r) ? mesclarObjeto(l, r, ehObjeto(b) ? b : {}) : l);
+    else if (l !== undefined) { if (b === undefined || !igual(l, b)) saida.push(l); }
+    else if (b === undefined || !igual(r, b)) saida.push(r);
+  }
+  return saida;
 }
 
 function agendarEnvio() {
@@ -120,6 +215,7 @@ async function enviarAlteracoes() {
   const alteradas = Object.fromEntries(Object.entries(local).filter(([id, json]) => conta.enviado[id] !== json));
   const removidas = Object.keys(conta.enviado).filter((id) => !(id in local));
   if (!Object.keys(alteradas).length && !removidas.length) return;
+  const anterior = { ...conta.enviado };
   Object.assign(conta.enviado, alteradas);
   removidas.forEach((id) => delete conta.enviado[id]);
   guardarSync();
@@ -127,6 +223,9 @@ async function enviarAlteracoes() {
     await window.Nuvem.enviar(conta.usuario.uid, alteradas, removidas);
     conta.erro = '';
   } catch (e) {
+    // Não chegou na nuvem: volta a referência, para a próxima mesclagem saber que isso ainda é mudança daqui
+    conta.enviado = anterior;
+    guardarSync();
     conta.erro = 'Não foi possível enviar para a nuvem. Os dados continuam salvos neste aparelho.';
     toast(conta.erro);
   }
@@ -188,12 +287,16 @@ window.Tetis = {
       }
     }
 
-    // Mescla por parte: o que mudou aqui e ainda não subiu fica; o resto vem da nuvem
+    // Mescla por parte: o que só mudou aqui fica, o que só mudou na nuvem vem de lá.
+    // Se os dois lados mexeram na mesma parte, junta item a item (ver mesclarParte).
     const local = particionar(state);
     const final = {};
     for (const id of new Set([...Object.keys(local), ...Object.keys(partes)])) {
-      const mudouAqui = local[id] !== conta.enviado[id];
-      const valor = mudouAqui ? local[id] : partes[id];
+      const base = conta.enviado[id];
+      const mudouAqui = local[id] !== base, mudouLa = partes[id] !== base;
+      // Parte inteira apagada aqui (ex.: último lançamento do ano) mas alterada lá: junta, para não perder o que entrou lá
+      const valor = !mudouAqui ? partes[id] : !mudouLa || partes[id] === undefined ? local[id]
+        : mesclarParte(id, local[id] ?? (/^(sessoes|transacoes)-/.test(id) ? '[]' : '{}'), partes[id], base);
       if (valor !== undefined) final[id] = valor;
     }
     conta.enviado = { ...partes };
@@ -262,12 +365,47 @@ const VALOR_OCULTO = 'R$ ••••';
 const brl = (v) => (ui.ocultarValores ? VALOR_OCULTO : moeda.format(v || 0));
 const num1 = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 
+// Campo numérico opcional: vazio vira '', número dentro da faixa vira número, qualquer outra coisa vira null.
+// <input type="number"> sempre entrega ponto decimal e nunca separador de milhar ("2.500" é dois e meio):
+// esse formato é lido direto, sem a regra de milhar do parseNum (que é para extratos e texto livre).
+function numeroCampo(v, min, max) {
+  const t = String(v ?? '').trim();
+  if (t === '') return '';
+  const n = /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : parseNum(t);
+  return Number.isFinite(n) && n >= min && n <= max ? n : null;
+}
+
+// "3x12", "4 x 8-10" → { series, reps }; vazio → sem séries; qualquer outra coisa → null
+function seriesReps(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return { series: '', reps: '' };
+  const m = s.match(/^(\d{1,2})\s*[x×]\s*([1-9]\d{0,2}(?:\s*(?:-|a)\s*[1-9]\d{0,2})?|[a-zà-ú][a-zà-ú .]{0,14})$/i);
+  return m && +m[1] >= 1 ? { series: +m[1], reps: m[2].trim().replace(/^(\d+)\s*(?:-|a)\s*(\d+)$/i, '$1-$2') } : null;
+}
+
+// Lê números escritos de vários jeitos: "1.234,56", "1,234.56", "1.234" (mil), "80.5", "R$ -10",
+// "−10,00" (sinal de menos tipográfico), "(10,00)" e "10,00-" (formatos de extrato para valor negativo)
 function parseNum(s) {
   if (typeof s === 'number') return s;
-  s = String(s ?? '').trim().replace(/[R$\s]/g, '');
+  s = String(s ?? '').trim().replace(/[R$\s ]/g, '').replace(/[−–]/g, '-');
   if (!s) return NaN;
-  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
-  return Number(s);
+  let negativo = false;
+  if (/^\(.*\)$/.test(s)) { negativo = true; s = s.slice(1, -1); }
+  if (/-$/.test(s)) { negativo = true; s = s.slice(0, -1); }
+  if (s.startsWith('-')) { negativo = !negativo; s = s.slice(1); } else if (s.startsWith('+')) s = s.slice(1);
+  if (!/^[\d.,]+$/.test(s)) return NaN;
+  const ultVirgula = s.lastIndexOf(','), ultPonto = s.lastIndexOf('.');
+  if (ultVirgula >= 0 && ultPonto >= 0) {
+    // Os dois aparecem: o último é o separador decimal
+    s = ultVirgula > ultPonto ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  } else if (ultVirgula >= 0) {
+    s = (s.match(/,/g).length > 1 ? s.replace(/,/g, '') : s.replace(',', '.'));
+  } else if (ultPonto >= 0) {
+    // Só pontos: vários ou "1.234" (exatamente 3 dígitos depois, sem zero à esquerda) é milhar; "80.5" é decimal
+    if (s.match(/\./g).length > 1 || /^[1-9]\d{0,2}\.\d{3}$/.test(s)) s = s.replace(/\./g, '');
+  }
+  const n = Number(s);
+  return negativo ? -n : n;
 }
 
 function variacao(d, unidade = ' kg') {
@@ -300,10 +438,21 @@ async function lerTexto(arquivo) {
   return utf8.includes('�') ? new TextDecoder('windows-1252').decode(buf) : utf8;
 }
 
+// Erros do Firebase vêm em inglês: troca pelos casos comuns em português
+function mensagemErro(err) {
+  const m = String(err?.message || err || '');
+  if (/offline|unavailable|network/i.test(m) || err?.code === 'unavailable') return 'Sem internet agora. Tente de novo quando a conexão voltar.';
+  if (err?.code === 'permission-denied' || /permission/i.test(m)) return 'Sem permissão para isso. Confira as regras do Firestore.';
+  return m || 'Algo deu errado. Tente de novo.';
+}
+
 // =====================================================================
 // Modal
 // =====================================================================
 let modalSubmit = null;
+let modalGeracao = 0; // muda a cada modal aberto ou fechado: um envio antigo que termina depois não mexe no modal novo
+let enviandoModal = false;
+let modalRota = ''; // tela em que o modal foi aberto: se a pessoa voltar/navegar, ele fecha
 let modalFechando = false;
 const semAnimacao = matchMedia('(prefers-reduced-motion: reduce)');
 const modalAberto = () => $('#modal').open && !modalFechando;
@@ -316,6 +465,10 @@ function abrirModal(titulo, corpo, onSubmit, { ok = 'Salvar' } = {}) {
   $('#modal-corpo').innerHTML = corpo;
   $('#modal-ok').textContent = ok;
   modalSubmit = onSubmit;
+  modalRota = location.hash;
+  modalGeracao++;
+  enviandoModal = false;
+  $('#modal-ok').disabled = false;
   clearTimeout(timerFechar);
   // Um modal pode abrir outro (ex.: menu de grupos → criar grupo): só troca o conteúdo
   if (!m.open) m.showModal();
@@ -326,6 +479,9 @@ let timerFechar;
 function fecharModal() {
   const m = $('#modal');
   modalSubmit = null;
+  modalGeracao++;
+  enviandoModal = false;
+  $('#modal-ok').disabled = false;
   if (!m.open || modalFechando) return;
   if (semAnimacao.matches) { m.close(); if (social.pendente) redesenharSocial(); return; }
   modalFechando = true;
@@ -347,18 +503,28 @@ $('#modal').addEventListener('click', (e) => {
   if (fora) fecharModal();
 });
 
+// Enquanto um envio está em andamento (foto sendo reduzida, extrato sendo lido…), outro toque em Salvar é ignorado.
+// A trava é do modal aberto: fechar ou abrir outro modal a libera (ver abrirModal/fecharModal).
 $('#modal-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (e.submitter?.value === 'cancelar') { fecharModal(); return; }
+  if (enviandoModal || !modalSubmit) return;
   const formData = new FormData(e.target);
   const dados = Object.fromEntries(formData);
+  const ok = $('#modal-ok');
+  const geracao = modalGeracao;
+  enviandoModal = true;
+  ok.disabled = true;
   try {
     // formData vai junto para campos repetidos (ex.: lista de exercícios da ficha)
-    if ((await modalSubmit?.(dados, formData)) === false) return;
+    if ((await modalSubmit(dados, formData)) === false) return;
   } catch (err) {
-    toast(err.message);
+    toast(mensagemErro(err));
     return;
+  } finally {
+    if (geracao === modalGeracao) { enviandoModal = false; ok.disabled = false; }
   }
+  if (geracao !== modalGeracao) { salvar(); render(); return; } // a pessoa já fechou/trocou de modal
   fecharModal();
   salvar();
   render();
@@ -453,7 +619,7 @@ function vInicio() {
   const diasTreino = diasAcademia();
   const semana = ultimos7.filter((d) => diasTreino.has(d)).length;
   const ultDia = [...diasTreino].sort().at(-1);
-  const meta = parseNum(state.config.metaPeso);
+  const meta = numeroCampo(state.config.metaPeso, 20, 400) || NaN;
   const progMeta = meta && p.length > 1 && inicial.peso > meta
     ? Math.min(Math.max((inicial.peso - atual.peso) / (inicial.peso - meta), 0), 1) : null;
   const m = resumoMes(hoje().slice(0, 7));
@@ -499,11 +665,16 @@ function vInicio() {
 // Linha: "nome 4x10-12 40kg 60s — observação" (tudo depois do nome é opcional)
 function parseExercicios(texto) {
   return texto.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
-    const [principal, ...resto] = l.split(/\s+[—|]\s+/);
-    const m = principal.match(/^(.+?)(?:\s+(\d+)\s*x\s*(\S+))?(?:\s+([\d.,]+)\s*kg)?(?:\s+(\d+(?:-\d+)?)\s*s)?\s*$/i);
+    let [principal, ...resto] = l.split(/\s+[—–|]\s+/);
+    // " - " também separa a observação, mas só depois das séries ("Remada 3x10 - devagar"),
+    // para não cortar nomes como "Puxada - pegada aberta"
+    const comHifen = !resto.length && principal.match(/^(.*\d+\s*x\s*\S+.*?)\s+-\s+(.+)$/i);
+    if (comHifen) [principal, resto] = [comHifen[1], [comHifen[2]]];
+    const m = principal.match(/^(.+?)(?:\s+(\d+)\s*[x×]\s*(\d+(?:\s*(?:-|a)\s*\d+)?|\S+))?(?:\s+([\d.,]+)\s*kg)?(?:\s+(\d+(?:-\d+)?)\s*(s|seg|min)\b)?\s*$/i);
+    const descanso = !m[5] ? '' : /min/i.test(m[6]) ? m[5].split('-').map((x) => +x * 60).join('-') : m[5];
     return {
-      nome: m[1].trim(), series: m[2] ? +m[2] : '', reps: m[3] || '', carga: m[4] ? parseNum(m[4]) : '',
-      descanso: m[5] || '', obs: resto.join(' — ').trim(),
+      nome: m[1].trim(), series: m[2] ? +m[2] : '', reps: (m[3] || '').replace(/^(\d+)\s*(?:-|a)\s*(\d+)$/i, '$1-$2'),
+      carga: m[4] ? parseNum(m[4]) : '', descanso, obs: resto.join(' — ').trim(),
     };
   });
 }
@@ -692,7 +863,7 @@ function vSessao() {
           </div>
           <div class="ex-campos">
             <input inputmode="numeric" placeholder="séries×reps" value="${esc(i.series && i.reps ? `${i.series}x${i.reps}` : '')}" data-sess="${idx}" data-campo="seriesReps" aria-label="Séries e repetições">
-            <input type="number" inputmode="decimal" step="0.5" min="0" placeholder="kg" value="${i.carga}" data-sess="${idx}" data-campo="carga" aria-label="Carga em kg">
+            <input type="number" inputmode="decimal" step="any" min="0" placeholder="kg" value="${esc(i.carga)}" data-sess="${idx}" data-campo="carga" aria-label="Carga em kg">
           </div>
         </div>`;
       }).join('')}
@@ -713,8 +884,8 @@ function vSessao() {
 function vPeso() {
   const p = pesosOrdenados();
   const atual = p.at(-1), inicial = p[0];
-  const meta = parseNum(state.config.metaPeso);
-  const altura = parseNum(state.config.altura) / 100;
+  const meta = numeroCampo(state.config.metaPeso, 20, 400) || NaN;
+  const altura = (numeroCampo(state.config.altura, 100, 250) || NaN) / 100;
   const imc = atual && altura ? atual.peso / (altura * altura) : null;
   const corte = ui.pesoPeriodo === 'tudo' ? '' : (() => {
     const d = new Date(); d.setDate(d.getDate() - +ui.pesoPeriodo); return d.toISOString().slice(0, 10);
@@ -727,7 +898,7 @@ function vPeso() {
     <form class="card" data-form="peso">
       <div class="linha-form">
         <label class="campo" style="margin:0"><span>Data</span><input type="date" name="data" value="${hoje()}" max="${hoje()}" required></label>
-        <label class="campo" style="margin:0"><span>Peso (kg)</span><input type="number" name="peso" step="0.1" min="20" max="400" inputmode="decimal" placeholder="${atual ? num1(atual.peso) : '80,0'}" required></label>
+        <label class="campo" style="margin:0"><span>Peso (kg)</span><input type="number" name="peso" step="any" min="20" max="400" inputmode="decimal" placeholder="${atual ? num1(atual.peso) : '80,0'}" required></label>
         <button class="btn primario">Registrar</button>
       </div>
     </form>
@@ -893,7 +1064,7 @@ function vConfig() {
     <form class="card" data-form="orcamentos">
       <p class="dica">Deixe em branco as categorias sem limite.</p>
       <div class="grid">
-        ${CATEGORIAS.map((cat) => `<label class="campo" style="margin:0"><span>${cat}</span><input type="number" min="0" step="10" inputmode="decimal" name="${esc(cat)}" value="${esc(c.orcamentos?.[cat] ?? '')}" placeholder="R$"></label>`).join('')}
+        ${CATEGORIAS.map((cat) => `<label class="campo" style="margin:0"><span>${cat}</span><input type="number" min="0" step="any" inputmode="decimal" name="${esc(cat)}" value="${esc(c.orcamentos?.[cat] ?? '')}" placeholder="R$"></label>`).join('')}
       </div>
       <button class="btn primario bloco" style="margin-top:12px">Salvar orçamentos</button>
     </form>
@@ -1014,7 +1185,7 @@ function vPerfil() {
       <label class="campo"><span>Nome</span><input name="nome" autocomplete="name" value="${esc(nomeExibicao())}" placeholder="Como quer ser chamado"></label>
       <div class="linha-form">
         <label class="campo"><span>Altura (cm)</span><input type="number" name="altura" min="100" max="250" inputmode="numeric" value="${esc(c.altura)}"></label>
-        <label class="campo"><span>Meta de peso (kg)</span><input type="number" name="metaPeso" step="0.1" inputmode="decimal" value="${esc(c.metaPeso)}"></label>
+        <label class="campo"><span>Meta de peso (kg)</span><input type="number" name="metaPeso" step="any" min="20" max="400" inputmode="decimal" value="${esc(c.metaPeso)}"></label>
       </div>
       <button class="btn primario bloco">Salvar perfil</button>
     </form>
@@ -1138,14 +1309,17 @@ async function avatarPublico() {
   return social.mini.para;
 }
 
+// Mesmos limites das regras do Firestore (README): nome até 60 letras; avatar embutido ou a foto do Google
 async function dadosPublicos() {
-  return { nome: nomeExibicao() || conta.usuario.email.split('@')[0], avatar: await avatarPublico() };
+  const avatar = await avatarPublico();
+  const avatarOk = /^data:image\/(jpeg|png|webp);base64,/.test(avatar) ? avatar.length <= 60000 : /^https:\/\/lh\d\.googleusercontent\.com\//.test(avatar);
+  return { nome: (nomeExibicao() || conta.usuario.email.split('@')[0]).slice(0, 60), avatar: avatarOk ? avatar : '' };
 }
 
 // Atualiza nome, foto e dias de check-in em todos os grupos (só o que mudou)
 async function publicarRanking() {
   if (!conta.usuario || !emGrupos() || !window.Nuvem?.social) return;
-  const dados = { ...(await dadosPublicos()), dias: [...state.checkinsNoDia].sort() };
+  const dados = { ...(await dadosPublicos()), dias: [...state.checkinsNoDia].sort().slice(-800) };
   const json = JSON.stringify(dados);
   for (const g of social.grupos) {
     if (social.enviado[g.id] === json) continue;
@@ -1199,12 +1373,12 @@ function vGrupos() {
   ui.animarTrofeu = false;
   return `
     <div class="grupos-chips">
-      ${social.grupos.map((x) => `<button class="grupo-chip ${x.id === ui.grupoAtual ? 'ativo' : ''}" data-act="abrirGrupo" data-v="${x.id}">${esc(x.nome)}</button>`).join('')}
+      ${social.grupos.map((x) => `<button class="grupo-chip ${x.id === ui.grupoAtual ? 'ativo' : ''}" data-act="abrirGrupo" data-v="${esc(x.id)}">${esc(x.nome)}</button>`).join('')}
       <button class="grupo-chip novo" data-act="menuGrupos" aria-label="Criar ou entrar em grupo">+</button>
     </div>
     <div class="card grupo-topo">
       <div class="item-corpo"><div class="item-titulo">${esc(g.nome)}</div>
-        <div class="item-sub">${g.membros.length} ${g.membros.length === 1 ? 'membro' : 'membros'} · código <b class="codigo">${g.id}</b></div></div>
+        <div class="item-sub">${g.membros.length} ${g.membros.length === 1 ? 'membro' : 'membros'} · código <b class="codigo">${esc(g.id)}</b></div></div>
       <button class="btn pequeno" data-act="convidar">Convidar</button>
       <button class="btn-x" data-act="sairGrupo" aria-label="Sair do grupo" title="Sair do grupo">${ic('log-out')}</button>
     </div>
@@ -1276,15 +1450,15 @@ function vFeed(g) {
       return `<article class="card post">
         <header class="post-topo">
           ${avatarDe(p, 'conta-avatar')}
-          <div class="item-corpo"><div class="item-titulo">${esc(p.nome)}</div><div class="item-sub">${tempoRelativo(p.criado)}</div></div>
-          ${p.uid === eu || souCriador ? `<button class="btn-x" data-act="apagarPost" data-id="${p.id}" aria-label="Apagar post">${ic('x')}</button>` : ''}
+          <div class="item-corpo"><div class="item-titulo">${esc(p.nome)}</div><div class="item-sub">${esc(tempoRelativo(p.criado))}</div></div>
+          ${p.uid === eu || souCriador ? `<button class="btn-x" data-act="apagarPost" data-id="${esc(p.id)}" aria-label="Apagar post">${ic('x')}</button>` : ''}
         </header>
-        ${social.fotos[p.id] ? `<img class="post-foto" src="${social.fotos[p.id]}" alt="Foto de ${esc(p.nome)}" loading="lazy" data-post="${p.id}">` : ''}
+        ${social.fotos[p.id] ? `<img class="post-foto" src="${social.fotos[p.id]}" alt="Foto de ${esc(p.nome)}" loading="lazy" data-post="${esc(p.id)}">` : ''}
         ${p.legenda ? `<p class="post-legenda">${esc(p.legenda)}</p>` : ''}
         <footer class="post-acoes">
-          <button class="post-btn ${curtiu ? 'curtiu' : ''}" data-act="curtir" data-id="${p.id}" aria-pressed="${curtiu}">
+          <button class="post-btn ${curtiu ? 'curtiu' : ''}" data-act="curtir" data-id="${esc(p.id)}" aria-pressed="${curtiu}">
             <span class="coracao">${ic('heart')}</span> ${nCurt || ''}</button>
-          <button class="post-btn" data-act="verComentarios" data-id="${p.id}">${ic('message-circle')} ${p.nComentarios || ''}</button>
+          <button class="post-btn" data-act="verComentarios" data-id="${esc(p.id)}">${ic('message-circle')} ${p.nComentarios || ''}</button>
         </footer>
       </article>`;
     }).join('') || '<div class="card"><p class="vazio">Nenhum post ainda. Que tal ser o primeiro?</p></div>'}
@@ -1353,8 +1527,8 @@ async function carregarComentarios(g, postId) {
     caixa.innerHTML = lista.map((c) => `
       <div class="comentario">
         ${avatarDe(c, 'avatar-mini')}
-        <div class="item-corpo"><b>${esc(c.nome)}</b> <span class="muted">${tempoRelativo(c.criado)}</span><div>${esc(c.texto)}</div></div>
-        ${podeApagar(c) ? `<button type="button" class="btn-x" data-act="apagarComentario" data-post="${postId}" data-id="${c.id}" aria-label="Apagar comentário">${ic('x')}</button>` : ''}
+        <div class="item-corpo"><b>${esc(c.nome)}</b> <span class="muted">${esc(tempoRelativo(c.criado))}</span><div>${esc(c.texto)}</div></div>
+        ${podeApagar(c) ? `<button type="button" class="btn-x" data-act="apagarComentario" data-post="${esc(postId)}" data-id="${esc(c.id)}" aria-label="Apagar comentário">${ic('x')}</button>` : ''}
       </div>`).join('') || '<p class="muted" style="margin:0">Nenhum comentário ainda.</p>';
     caixa.scrollTop = caixa.scrollHeight;
   } catch (e) {
@@ -1456,7 +1630,7 @@ function blocoExercicio(e = {}) {
     <div class="ex-editor-campos">
       <label><span>Séries</span><input name="ex_series" type="number" min="1" inputmode="numeric" value="${esc(e.series)}" placeholder="4"></label>
       <label><span>Reps</span><input name="ex_reps" value="${esc(e.reps)}" placeholder="10-12"></label>
-      <label><span>Carga (kg)</span><input name="ex_carga" type="number" step="0.5" min="0" inputmode="decimal" value="${esc(e.carga)}" placeholder="—"></label>
+      <label><span>Carga (kg)</span><input name="ex_carga" type="number" step="any" min="0" inputmode="decimal" value="${esc(e.carga)}" placeholder="—"></label>
       <label><span>Descanso (s)</span><input name="ex_descanso" inputmode="numeric" value="${esc(e.descanso)}" placeholder="60"></label>
     </div>
     <input name="ex_obs" class="ex-editor-obs" value="${esc(e.obs)}" placeholder="Observação (opcional)">
@@ -1491,10 +1665,12 @@ function formFicha(f) {
     const campo = (nome) => fd.getAll(nome).map((v) => String(v).trim());
     const nomes = campo('ex_nome'), series = campo('ex_series'), reps = campo('ex_reps');
     const cargas = campo('ex_carga'), descansos = campo('ex_descanso'), obs = campo('ex_obs');
-    const exercicios = nomes.map((nome, i) => ({
-      nome, series: series[i] ? Number(series[i]) : '', reps: reps[i].replace(/\s*a\s*/i, '-'),
-      carga: cargas[i] ? parseNum(cargas[i]) : '', descanso: descansos[i].replace(/\s*s$/i, ''), obs: obs[i],
-    })).filter((e) => e.nome);
+    const exercicios = nomes.map((nome, i) => {
+      const serie = numeroCampo(series[i], 1, 50), carga = numeroCampo(cargas[i], 0, 1000);
+      if (nome && serie === null) throw new Error(`Séries de "${nome}": use um número de 1 a 50.`);
+      if (nome && carga === null) throw new Error(`Carga de "${nome}": use um número em kg (ex.: 12,5).`);
+      return { nome, series: serie || '', reps: reps[i].replace(/^(\d+)\s*a\s*(\d+)$/i, '$1-$2'), carga, descanso: descansos[i].replace(/\s*s$/i, ''), obs: obs[i] };
+    }).filter((e) => e.nome);
     if (!exercicios.length) throw new Error('Adicione pelo menos um exercício.');
     const dados = { nome: d.nome.trim(), foco: d.foco.trim(), dia: d.dia === '' ? '' : Number(d.dia), exercicios };
     if (f) Object.assign(f, dados);
@@ -1516,20 +1692,24 @@ function formSessao(s) {
         <div class="item-corpo"><div class="item-titulo ex-nome">${esc(i.nome)}</div></div>
         <div class="ex-campos">
           <input name="sr_${n}" placeholder="séries×reps" value="${esc(i.series && i.reps ? `${i.series}x${i.reps}` : '')}" aria-label="Séries e repetições">
-          <input type="number" name="carga_${n}" step="0.5" min="0" inputmode="decimal" placeholder="kg" value="${i.carga}" aria-label="Carga em kg">
+          <input type="number" name="carga_${n}" step="any" min="0" inputmode="decimal" placeholder="kg" value="${esc(i.carga)}" aria-label="Carga em kg">
         </div>
       </div>`).join('')}
     </div>
     <label class="campo" style="margin-top:14px"><span>Observações</span><textarea name="obs" rows="2">${esc(s.obs)}</textarea></label>
     <div class="modal-extra"><button type="button" class="btn pequeno perigo" data-act="excluirSessao" data-id="${s.id}">${ic('trash-2')} Excluir treino</button></div>
   `, (d) => {
-    Object.assign(s, { nome: d.nome.trim(), data: d.data, obs: d.obs.trim() });
-    s.itens.forEach((i, n) => {
-      i.feito = !!d[`feito_${n}`];
-      i.carga = d[`carga_${n}`] === '' ? '' : parseNum(d[`carga_${n}`]);
-      const m = (d[`sr_${n}`] || '').match(/^\s*(\d+)\s*x\s*(.+?)\s*$/i);
-      Object.assign(i, m ? { series: +m[1], reps: m[2] } : { series: '', reps: '' });
+    if (!dataValida(d.data)) throw new Error('Escolha uma data válida.');
+    // Confere tudo antes de mudar qualquer coisa
+    const novos = s.itens.map((i, n) => {
+      const carga = numeroCampo(d[`carga_${n}`], 0, 1000);
+      if (carga === null) throw new Error(`Carga de "${i.nome}": use um número em kg (ex.: 12,5).`);
+      const sr = seriesReps(d[`sr_${n}`]);
+      if (sr === null) throw new Error(`Séries de "${i.nome}": use o formato 3x12.`);
+      return { feito: !!d[`feito_${n}`], carga, ...sr };
     });
+    Object.assign(s, { nome: d.nome.trim(), data: d.data, obs: d.obs.trim() });
+    s.itens.forEach((i, n) => Object.assign(i, novos[n]));
     toast('Treino atualizado.');
   });
 }
@@ -1602,11 +1782,11 @@ function formTransacao(t) {
   abrirModal(t ? 'Editar lançamento' : 'Novo lançamento', `
     <div class="linha-form">
       <label class="campo"><span>Tipo</span><select name="tipo"><option value="despesa" ${tipo === 'despesa' ? 'selected' : ''}>Despesa</option><option value="receita" ${tipo === 'receita' ? 'selected' : ''}>Receita</option></select></label>
-      <label class="campo"><span>Valor (R$)</span><input type="number" name="valor" step="0.01" min="0.01" inputmode="decimal" required value="${t ? Math.abs(t.valor) : ''}"></label>
+      <label class="campo"><span>Valor (R$)</span><input type="number" name="valor" step="any" min="0.01" inputmode="decimal" required value="${t ? Math.abs(t.valor) : ''}"></label>
     </div>
     <label class="campo"><span>Descrição</span><input name="descricao" required value="${esc(t?.descricao)}" placeholder="Mercado, academia, salário…"></label>
     <div class="linha-form">
-      <label class="campo"><span>Data</span><input type="date" name="data" required value="${t?.data || (ui.mes === hoje().slice(0, 7) ? hoje() : ui.mes + '-01')}"></label>
+      <label class="campo"><span>Data</span><input type="date" name="data" required value="${esc(t?.data || (ui.mes === hoje().slice(0, 7) ? hoje() : ui.mes + '-01'))}"></label>
       <label class="campo"><span>Categoria</span><select name="categoria">
         <optgroup label="Despesas">${opts(CATEGORIAS)}</optgroup>
         <optgroup label="Receitas">${opts(CATEGORIAS_RECEITA.filter((c) => !CATEGORIAS.includes(c)))}</optgroup>
@@ -1614,9 +1794,11 @@ function formTransacao(t) {
     </div>
     ${t ? `<div class="modal-extra"><button type="button" class="btn pequeno perigo" data-act="excluirTransacao" data-id="${t.id}">Excluir lançamento</button></div>` : ''}
   `, (d) => {
-    const valor = Math.abs(parseNum(d.valor)) * (d.tipo === 'despesa' ? -1 : 1);
+    const valor = Math.abs(numeroCampo(d.valor, 0.01, 1e9) || 0) * (d.tipo === 'despesa' ? -1 : 1);
     if (!valor) throw new Error('Informe um valor válido.');
-    const dados = { data: d.data, descricao: d.descricao.trim(), valor, categoria: d.categoria };
+    if (!dataValida(d.data)) throw new Error('Escolha uma data válida.');
+    if (Math.abs(valor) >= 1e9) throw new Error('Valor alto demais.');
+    const dados = { data: d.data, descricao: d.descricao.trim().slice(0, 200), valor: Math.round(valor * 100) / 100, categoria: d.categoria };
     if (t) {
       // Aprende a categoria: os lançamentos iguais (mesma descrição, ainda não corrigidos à mão) mudam junto,
       // e os próximos já vêm certos
@@ -1641,52 +1823,138 @@ function formTransacao(t) {
 // =====================================================================
 // Importação de extratos (OFX / CSV)
 // =====================================================================
+// "Compra &amp; cia" → "Compra & cia" (OFX é SGML/XML e pode vir com entidades)
+const decodificarEntidades = (s) => s.replace(/&(amp|lt|gt|quot|apos|nbsp|#\d+|#x[0-9a-f]+);/gi, (_, e) => {
+  const fixas = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+  if (fixas[e.toLowerCase()]) return fixas[e.toLowerCase()];
+  const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+  return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : '';
+});
+
+// Data AAAA-MM-DD que existe de verdade (nada de mês 13 ou 31 de fevereiro)
+function dataValida(iso) {
+  if (!DATA_OK.test(iso)) return false;
+  const [a, m, d] = iso.split('-').map(Number);
+  const dt = new Date(a, m - 1, d);
+  return a >= 1990 && a <= 2100 && dt.getFullYear() === a && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+
 function parseOFX(txt) {
   return txt.split(/<STMTTRN>/i).slice(1).map((bloco) => {
-    const tag = (n) => (bloco.match(new RegExp(`<${n}>([^<\\r\\n]*)`, 'i'))?.[1] || '').trim();
+    const tag = (n) => decodificarEntidades((bloco.match(new RegExp(`<${n}>([^<\\r\\n]*)`, 'i'))?.[1] || '').trim());
     const dt = tag('DTPOSTED');
     return {
       data: `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)}`,
-      valor: parseNum(tag('TRNAMT')),
+      valor: /^[-+]?\d+(\.\d+)?$/.test(tag('TRNAMT')) ? Number(tag('TRNAMT')) : parseNum(tag('TRNAMT')),
       descricao: tag('MEMO') || tag('NAME') || 'Sem descrição',
       fitid: tag('FITID'),
     };
   });
 }
 
+// Divide uma linha do CSV em campos. Aspas só abrem no começo de um campo: `TV 50" LG` é texto comum
 function dividirCSV(linha, sep) {
   const out = []; let cur = '', aspas = false;
   for (let i = 0; i < linha.length; i++) {
     const c = linha[i];
-    if (c === '"') { if (aspas && linha[i + 1] === '"') { cur += '"'; i++; } else aspas = !aspas; }
-    else if (c === sep && !aspas) { out.push(cur); cur = ''; }
+    if (aspas) {
+      if (c === '"' && linha[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') aspas = false; else cur += c;
+    } else if (c === '"' && cur.trim() === '') { aspas = true; cur = ''; }
+    else if (c === sep) { out.push(cur); cur = ''; }
     else cur += c;
   }
   out.push(cur);
   return out.map((s) => s.trim());
 }
 
+// Quebra o CSV em registros respeitando aspas: uma descrição "com\nquebra de linha" continua sendo um registro só.
+// Como em dividirCSV, aspas só abrem no começo de um campo (uma aspa solta no meio do texto não engole o resto do arquivo).
+function registrosCSV(txt, sep) {
+  if (!sep) { // sem separador informado: deduz pela primeira linha
+    const l = txt.split(/\r?\n/)[0] || '', n = (c) => l.split(c).length - 1;
+    sep = n(';') > n(',') ? ';' : n('\t') > n(',') ? '\t' : ',';
+  }
+  const registros = [];
+  let atual = '', campo = '', aspas = false;
+  for (let i = 0; i < txt.length; i++) {
+    const c = txt[i];
+    if (aspas) {
+      if (c === '"' && txt[i + 1] === '"') { atual += '""'; campo += '"'; i++; continue; }
+      if (c === '"') aspas = false;
+      atual += c === '\n' || c === '\r' ? ' ' : c;
+      campo += c;
+      continue;
+    }
+    if (c === '\n' || c === '\r') {
+      if (c === '\r' && txt[i + 1] === '\n') i++;
+      if (atual.trim()) registros.push(atual);
+      atual = ''; campo = '';
+      continue;
+    }
+    if (c === '"' && campo.trim() === '') aspas = true;
+    campo = c === sep ? '' : campo + c;
+    atual += c;
+  }
+  if (atual.trim()) registros.push(atual);
+  return registros;
+}
+
+// "05/01/2026", "5-1-26", "05.01.2026" (dia/mês/ano, padrão brasileiro) ou "2026-01-05" → "2026-01-05"
+function dataCSV(bruto) {
+  const s = String(bruto || '').trim();
+  const br = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b/);
+  if (br) return `${br[3].length === 2 ? '20' + br[3] : br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`;
+  const iso = s.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})\b/);
+  return iso ? `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}` : s.slice(0, 10);
+}
+
 function parseCSV(txt, cartao) {
-  const linhas = txt.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim());
+  txt = txt.replace(/^﻿/, '');
+  // Alguns bancos põem linhas de cabeçalho (nome, agência, período…) antes da tabela: acha a linha com as colunas
+  const fisicas = txt.split(/\r?\n/);
+  const separador = (l) => {
+    const n = (ch) => l.split(ch).length - 1;
+    return n(';') > n(',') ? ';' : n('\t') > n(',') ? '\t' : ',';
+  };
+  const ehCabecalho = (l) => {
+    const cab = dividirCSV(l, separador(l)).map(norm);
+    return cab.some((c) => /^(data|date|dt)\b/.test(c)) && cab.some((c) => /valor|amount|value|quantia|debito|credito|saida|entrada/.test(c));
+  };
+  const iCab = fisicas.slice(0, 30).findIndex(ehCabecalho);
+  if (iCab < 0) {
+    if (fisicas.filter((l) => l.trim()).length < 2) throw new Error('O arquivo CSV está vazio.');
+    throw new Error('Não encontrei as colunas de data e valor no CSV.');
+  }
+  const sep = separador(fisicas[iCab]);
+  const linhas = registrosCSV(fisicas.slice(iCab).join('\n'), sep);
   if (linhas.length < 2) throw new Error('O arquivo CSV está vazio.');
-  const conta = (ch) => (linhas[0].match(new RegExp(`\\${ch}`, 'g')) || []).length;
-  const sep = conta(';') > conta(',') ? ';' : conta('\t') > conta(',') ? '\t' : ',';
   const cab = dividirCSV(linhas[0], sep).map(norm);
-  const achar = (re) => cab.findIndex((c) => re.test(c));
-  const iData = achar(/^(data|date|dt)/);
-  const iValor = achar(/valor|amount|value|quantia/);
-  const iDesc = achar(/descri|title|titulo|historico|memo|estabelecimento|lancamento/);
-  const iId = achar(/^(identificador|id)$/);
-  if (iData < 0 || iValor < 0) throw new Error('Não encontrei as colunas de data e valor no CSV.');
+  // Procura primeiro o nome exato, depois o que só contém a palavra, sem repetir colunas já usadas
+  // ("Data valor" é data; em "Data lançamento" a descrição não pode ser a coluna de data)
+  const achar = (exato, contem, ...fora) => {
+    const i = cab.findIndex((c, k) => !fora.includes(k) && exato.test(c));
+    return i >= 0 ? i : cab.findIndex((c, k) => !fora.includes(k) && contem.test(c));
+  };
+  const iData = achar(/^(data|date|dt)( (lancamento|movimento|transacao|compra))?$/, /^(data|date|dt)\b/);
+  const iValor = achar(/^(valor|amount|value|quantia)( \(?r\$\)?)?$/, /^(?!data|date|dt).*(valor|amount|value|quantia)/, iData);
+  // Extratos com duas colunas: Débito e Crédito (ou Saída e Entrada)
+  const iDeb = iValor < 0 ? achar(/^(debito|saida)s?( \(?r\$\)?)?$/, /debito|saida/, iData) : -1;
+  const iCred = iValor < 0 ? achar(/^(credito|entrada)s?( \(?r\$\)?)?$/, /credito|entrada/, iData) : -1;
+  const iDesc = achar(/^(descricao|historico|lancamento|estabelecimento|detalhes)$/, /descri|title|titulo|historico|memo|estabelecimento|lancamento|detalhe/, iData, iValor, iDeb, iCred);
+  const iId = achar(/^(identificador|id)$/, /^(identificador|id)$/);
+  if (iData < 0 || (iValor < 0 && iDeb < 0 && iCred < 0)) throw new Error('Não encontrei as colunas de data e valor no CSV.');
 
   return linhas.slice(1).map((l) => {
     const c = dividirCSV(l, sep);
-    const bruto = c[iData] || '';
-    const m = bruto.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-    const data = m ? `${m[3].length === 2 ? '20' + m[3] : m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : bruto.slice(0, 10);
-    let valor = parseNum(c[iValor]);
+    let valor;
+    if (iValor >= 0) valor = parseNum(c[iValor]);
+    else {
+      const deb = iDeb >= 0 && c[iDeb] ? Math.abs(parseNum(c[iDeb])) : 0;
+      const cred = iCred >= 0 && c[iCred] ? Math.abs(parseNum(c[iCred])) : 0;
+      valor = (Number.isFinite(cred) ? cred : NaN) - (Number.isFinite(deb) ? deb : NaN);
+    }
     if (cartao) valor = -valor;
-    return { data, valor, descricao: (iDesc >= 0 ? c[iDesc] : '') || 'Sem descrição', fitid: iId >= 0 ? c[iId] : '' };
+    return { data: dataCSV(c[iData]), valor, descricao: (iDesc >= 0 ? c[iDesc] : '') || 'Sem descrição', fitid: iId >= 0 ? c[iId] : '' };
   });
 }
 
@@ -1696,11 +1964,16 @@ function formImportar() {
     <label class="campo"><span>Arquivo</span><input type="file" name="arquivo" accept=".ofx,.qfx,.csv,.txt" required></label>
     <label class="check"><input type="checkbox" name="cartao"> É fatura de cartão em CSV (valores positivos são gastos)</label>
   `, async (d) => {
+    if (!d.arquivo?.size) throw new Error('Escolha o arquivo do extrato.');
+    if (d.arquivo.size > 20e6) throw new Error('Arquivo grande demais para um extrato (máx. 20 MB).');
     const txt = await lerTexto(d.arquivo);
     const ehOFX = /<OFX>|OFXHEADER/i.test(txt);
-    const itens = (ehOFX ? parseOFX(txt) : parseCSV(txt, !!d.cartao))
-      .filter((t) => /^\d{4}-\d{2}-\d{2}$/.test(t.data) && Number.isFinite(t.valor) && t.valor !== 0);
-    if (!itens.length) throw new Error('Nenhum lançamento reconhecido no arquivo.');
+    const lidos = ehOFX ? parseOFX(txt) : parseCSV(txt, !!d.cartao);
+    const validos = lidos.filter((t) => dataValida(t.data) && Number.isFinite(t.valor) && t.valor !== 0 && Math.abs(t.valor) < 1e9);
+    // Igual ao Open Finance: pagar a fatura e guardar/resgatar dinheiro só mudam o dinheiro de lugar
+    const itens = validos.filter((t) => !PAGAMENTO_FATURA.test(t.descricao) && !ehMovimentoGuardado(t.descricao, ''));
+    const movimentos = validos.length - itens.length;
+    if (!itens.length) throw new Error(validos.length ? 'O arquivo só tem pagamentos de fatura e aplicações/resgates, que não contam como gasto.' : 'Nenhum lançamento reconhecido no arquivo.');
 
     const chave = (t) => (t.fitid ? `f:${t.fitid}` : `k:${t.data}|${t.valor.toFixed(2)}|${chaveDesc(t.descricao)}`);
     const existentes = new Set(state.transacoes.map((t) => t.chave).filter(Boolean));
@@ -1708,12 +1981,14 @@ function formImportar() {
     for (const t of itens) {
       const k = chave(t);
       if (existentes.has(k)) continue;
-      state.transacoes.push({ id: uid(), data: t.data, descricao: t.descricao, valor: t.valor, categoria: categorizar(t.descricao, t.valor), origem: 'importado', chave: k });
+      existentes.add(k);
+      state.transacoes.push({ id: uid(), data: t.data, descricao: t.descricao.slice(0, 200), valor: Math.round(t.valor * 100) / 100, categoria: categorizar(t.descricao, t.valor), origem: 'importado', chave: k });
       novos++;
     }
     const ultimo = itens.map((t) => t.data).sort().at(-1);
     ui.mes = ultimo.slice(0, 7);
-    toast(`${novos} lançamentos importados${itens.length - novos ? `, ${itens.length - novos} repetidos ignorados` : ''}.`);
+    const repetidos = itens.length - novos, descartados = lidos.length - validos.length;
+    toast(`${novos} lançamentos importados${repetidos ? `, ${repetidos} repetidos ignorados` : ''}${movimentos ? `, ${movimentos} pagamentos de fatura/aplicações fora dos gastos` : ''}${descartados ? `, ${descartados} linhas com data ou valor ilegível ignoradas` : ''}.`);
   }, { ok: 'Importar' });
 }
 
@@ -1727,7 +2002,9 @@ const acoes = {
   editarFicha: ({ id }) => formFicha(porId(state.fichas, id)),
   excluirFicha: ({ id }) => {
     const f = porId(state.fichas, id);
-    if (!confirm(`Excluir a ficha "${f?.nome}"? Os treinos já registrados no histórico continuam salvos.`)) return false;
+    const emUso = state.sessaoAtual?.fichaId === id;
+    if (!confirm(`Excluir a ficha "${f?.nome}"? Os treinos já registrados no histórico continuam salvos.${emUso
+      ? '\n\nAtenção: o treino em andamento usa esta ficha. Ele continua e será salvo no histórico, mas as cargas novas não vão para ficha nenhuma.' : ''}`)) return false;
     state.fichas = state.fichas.filter((x) => x.id !== id);
     fecharModal();
     salvar();
@@ -1773,7 +2050,10 @@ const acoes = {
   maisDescanso: () => { if (timer) { timer.fim += 15000; timer.total += 15000; tickDescanso(); } return false; },
   pararDescanso: () => { pararDescanso(); return false; },
   iniciarTreino: ({ id }) => {
+    // Toque duplo em "Iniciar" (ou um treino já aberto): só volta para ele, sem zerar o horário
+    if (state.sessaoAtual) { location.hash = '#sessao'; return false; }
     const f = porId(state.fichas, id);
+    if (!f) { toast('Essa ficha não existe mais.'); return false; }
     state.sessaoAtual = {
       id: uid(), fichaId: f.id, nome: f.nome, data: hoje(), inicio: Date.now(), obs: '',
       itens: f.exercicios.map((e) => ({ ...e, carga: ultimaCarga(e.nome)?.carga ?? e.carga, feito: false })),
@@ -1782,12 +2062,19 @@ const acoes = {
   },
   addExercicioSessao: () => abrirModal('Adicionar exercício', `
     <label class="campo"><span>Exercício</span><input name="linha" required placeholder="Rosca direta 3x12 12kg"></label>`,
-  (d) => { state.sessaoAtual.itens.push({ ...parseExercicios(d.linha)[0], feito: false }); }, { ok: 'Adicionar' }),
+  (d) => {
+    if (!state.sessaoAtual) throw new Error('O treino já foi encerrado.');
+    const ex = parseExercicios(d.linha)[0];
+    if (!ex?.nome) throw new Error('Escreva o nome do exercício.');
+    state.sessaoAtual.itens.push({ ...ex, feito: false });
+  }, { ok: 'Adicionar' }),
   finalizarTreino: () => {
     const s = state.sessaoAtual;
-    if (!s.itens.some((i) => i.feito) && !confirm('Nenhum exercício marcado como feito. Salvar mesmo assim?')) return;
+    if (!s) { location.hash = '#treino'; return false; } // segundo toque: o treino já foi salvo
+    if (!s.itens.some((i) => i.feito) && !confirm('Nenhum exercício marcado como feito. Salvar mesmo assim?')) return false;
+    if (state.sessaoAtual !== s) return false; // outro toque salvou enquanto a pergunta estava aberta
     s.fim = Date.now();
-    state.sessoes.push(s);
+    if (!state.sessoes.some((x) => x.id === s.id)) state.sessoes.push(s);
     // A ficha passa a sugerir a carga mais recente
     const f = porId(state.fichas, s.fichaId);
     if (f) for (const i of s.itens) {
@@ -1795,12 +2082,13 @@ const acoes = {
       if (e && i.feito) Object.assign(e, { carga: i.carga, series: i.series, reps: i.reps });
     }
     state.sessaoAtual = null;
-    toast('Treino salvo! 💪');
+    toast(f ? 'Treino salvo! 💪' : 'Treino salvo! 💪 (a ficha foi excluída, então as cargas não foram atualizadas)');
     location.hash = '#treino';
   },
   // Começou sem querer ou bem antes da hora: o início passa a ser agora e os exercícios voltam a "não feito"
   recomecarTreino: () => {
     const s = state.sessaoAtual;
+    if (!s) return false;
     if (!confirm('Recomeçar o treino agora? O horário de início vai para agora e os exercícios marcados voltam a ficar desmarcados (as cargas digitadas continuam).')) return false;
     Object.assign(s, { inicio: Date.now(), data: hoje() });
     s.itens.forEach((i) => { i.feito = false; });
@@ -1811,18 +2099,25 @@ const acoes = {
     return false;
   },
   cancelarTreino: () => {
-    if (!confirm('Descartar o treino em andamento?')) return;
+    if (!state.sessaoAtual) { location.hash = '#treino'; return false; }
+    if (!confirm('Descartar o treino em andamento?')) return false;
     state.sessaoAtual = null;
     location.hash = '#treino';
   },
   alternarDia: ({ v }) => {
+    if (!DATA_OK.test(v || '')) return false;
     if (state.checkins.includes(v)) {
+      // Toque duplo logo depois de marcar não desmarca; desmarcar de propósito pede confirmação
+      if (ui.ultimoCheckin === v && Date.now() - (ui.ultimoCheckinEm || 0) < 1500) return false;
+      const valiaNoRanking = state.checkinsNoDia.includes(v);
+      if (!confirm(`Desmarcar o check-in de ${fmtData(v)}?${valiaNoRanking ? '\n\nEle foi feito no próprio dia e conta no ranking dos grupos. Se marcar de novo depois, não vai contar mais.' : ''}`)) return false;
       state.checkins = state.checkins.filter((d) => d !== v);
       state.checkinsNoDia = state.checkinsNoDia.filter((d) => d !== v);
       return;
     }
     state.checkins.push(v);
     ui.ultimoCheckin = v;
+    ui.ultimoCheckinEm = Date.now();
     if (navigator.vibrate) navigator.vibrate(15);
     if (v !== hoje()) return;
     // Só o check-in feito no próprio dia vale para o ranking
@@ -1854,7 +2149,7 @@ const acoes = {
     const g = grupoAtual();
     abrirModal(`Convidar para ${g.nome}`, `
       <p class="dica">Peça para a pessoa abrir o app, ir em <b>Treino → Grupos → Entrar com código</b> e digitar:</p>
-      <div class="codigo-grande">${g.id}</div>
+      <div class="codigo-grande">${esc(g.id)}</div>
       <button type="button" class="btn bloco" data-act="compartilharCodigo">${navigator.share ? 'Compartilhar convite' : 'Copiar convite'}</button>
     `, () => {}, { ok: 'Pronto' });
   },
@@ -1946,7 +2241,9 @@ const acoes = {
     <label class="campo"><span>Valor guardado antes do app (R$)</span>
       <input type="number" name="saldoInicial" step="0.01" inputmode="decimal" value="${esc(state.config.saldoInicial ?? '')}" placeholder="0,00"></label>`,
   (d) => {
-    state.config.saldoInicial = d.saldoInicial === '' ? '' : parseNum(d.saldoInicial);
+    const saldo = numeroCampo(d.saldoInicial, -1e9, 1e9);
+    if (saldo === null) throw new Error('Informe um valor em reais, ex.: 1500,00.');
+    state.config.saldoInicial = saldo;
     toast('Total guardado atualizado.');
   }),
   novaTransacao: () => formTransacao(null),
@@ -1988,6 +2285,7 @@ const acoes = {
   desconectarBancos: () => {
     if (!confirm('Desconectar os bancos deste app? Os lançamentos que já vieram continuam salvos. (Para revogar o acesso de vez, remova também no Meu Pluggy.)')) return false;
     delete state.integracoes.pluggy;
+    guardarSegredo('');
     fecharModal();
     salvar();
     render();
@@ -2000,13 +2298,22 @@ const acoes = {
     baixarArquivo(`financas-${hoje()}.csv`, '﻿' + linhas.map((l) => l.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n'), 'text/csv');
   },
   restaurar: () => abrirModal('Restaurar backup', `
-    <p class="dica">Os dados atuais deste aparelho serão substituídos pelos do arquivo.</p>
+    <p class="dica"><b>Atenção:</b> tudo o que está na sua conta (neste e nos outros aparelhos) será substituído pelo que está no arquivo.
+      O que não estiver no backup será apagado. Se não tiver certeza, faça antes um backup dos dados atuais.</p>
     <label class="campo"><span>Arquivo de backup (.json)</span><input type="file" name="arquivo" accept=".json,application/json" required></label>`,
   async (d) => {
+    if (!d.arquivo?.size) throw new Error('Escolha o arquivo de backup.');
+    if (d.arquivo.size > 20e6) throw new Error('Arquivo grande demais para ser um backup do Tétis (máx. 20 MB).');
     let dados;
     try { dados = JSON.parse(await lerTexto(d.arquivo)); } catch { throw new Error('Arquivo de backup inválido.'); }
-    if (!dados || typeof dados !== 'object' || !Array.isArray(dados.pesos)) throw new Error('Arquivo de backup inválido.');
-    state = { ...estadoInicial(), ...dados };
+    const pareceBackup = dados && typeof dados === 'object' && ['pesos', 'fichas', 'sessoes', 'notas', 'transacoes'].every((k) => dados[k] === undefined || Array.isArray(dados[k]))
+      && ['pesos', 'fichas', 'notas', 'transacoes'].some((k) => Array.isArray(dados[k]));
+    if (!pareceBackup) throw new Error('Este arquivo não é um backup do Tétis.');
+    // Mantém a conexão com o banco que já existe (o backup não leva o Client Secret)
+    const integracoes = state.integracoes;
+    state = normalizarEstado(dados);
+    if (integracoes?.pluggy) state.integracoes = integracoes;
+    if (state.sessaoAtual?.data !== hoje()) state.sessaoAtual = null; // treino "em andamento" de um backup antigo não volta
     toast('Backup restaurado.');
   }, { ok: 'Restaurar' }),
   removerFoto: () => {
@@ -2062,8 +2369,9 @@ document.addEventListener('click', (e) => {
 
 const formularios = {
   peso: (d, form) => {
-    const peso = parseNum(d.peso);
-    if (!(peso > 0)) return toast('Informe um peso válido.');
+    const peso = numeroCampo(d.peso, 20, 400);
+    if (!peso) throw new Error('Informe um peso entre 20 e 400 kg.');
+    if (!dataValida(d.data) || d.data > hoje()) throw new Error('Escolha uma data válida (até hoje).');
     const existente = state.pesos.find((p) => p.data === d.data);
     if (existente) existente.peso = peso;
     else state.pesos.push({ id: uid(), data: d.data, peso });
@@ -2071,7 +2379,10 @@ const formularios = {
     form.reset();
   },
   perfil: (d) => {
-    Object.assign(state.config, { altura: d.altura, metaPeso: d.metaPeso });
+    const altura = numeroCampo(d.altura, 100, 250), metaPeso = numeroCampo(d.metaPeso, 20, 400);
+    if (altura === null) throw new Error('Altura em centímetros, entre 100 e 250 (ex.: 175).');
+    if (metaPeso === null) throw new Error('Meta de peso entre 20 e 400 kg.');
+    Object.assign(state.config, { altura, metaPeso });
     const nome = d.nome.trim();
     if (nome !== nomeExibicao()) {
       state.perfil.nome = nome;
@@ -2081,7 +2392,9 @@ const formularios = {
     toast('Perfil salvo.');
   },
   orcamentos: (d) => {
-    state.config.orcamentos = Object.fromEntries(Object.entries(d).filter(([, v]) => parseNum(v) > 0).map(([k, v]) => [k, parseNum(v)]));
+    const errado = Object.entries(d).find(([, v]) => numeroCampo(v, 0.01, 1e8) === null);
+    if (errado) throw new Error(`Limite inválido em ${errado[0]}: use um valor maior que zero, ou deixe em branco para não ter limite.`);
+    state.config.orcamentos = Object.fromEntries(Object.entries(d).map(([k, v]) => [k, numeroCampo(v, 0.01, 1e8)]).filter(([, v]) => v > 0));
     toast('Orçamentos salvos.');
   },
 };
@@ -2098,7 +2411,12 @@ document.addEventListener('submit', (e) => {
       : window.Nuvem.entrar(dados.email, dados.senha)));
     return;
   }
-  formularios[nome](dados, e.target);
+  try {
+    formularios[nome](dados, e.target);
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
   salvar();
   render();
 });
@@ -2124,13 +2442,34 @@ document.addEventListener('input', (e) => {
         $('#sessao-progresso').style.width = `${progressoSessao() * 100}%`;
         if (it.feito && navigator.vibrate) navigator.vibrate(12);
       }
-      if (campo === 'carga') it.carga = el.value === '' ? '' : parseNum(el.value);
+      // Enquanto digita, valor inválido (ex.: "3x" pela metade) só não é gravado; o aviso vem ao sair do campo
+      if (campo === 'carga') {
+        const carga = numeroCampo(el.value, 0, 1000);
+        if (carga === null) return;
+        it.carga = carga;
+      }
       if (campo === 'seriesReps') {
-        const m = el.value.match(/^\s*(\d+)\s*x\s*(.+?)\s*$/i);
-        Object.assign(it, m ? { series: +m[1], reps: m[2] } : { series: '', reps: '' });
+        const sr = seriesReps(el.value);
+        if (sr === null) return;
+        Object.assign(it, sr);
       }
     }
     salvar();
+  }
+});
+
+// Ao sair do campo da sessão com um valor inválido: avisa e volta para o último valor válido
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  const it = el.dataset.sess != null && el.dataset.sess !== 'obs' ? state.sessaoAtual?.itens[+el.dataset.sess] : null;
+  if (!it) return;
+  if (el.dataset.campo === 'carga' && numeroCampo(el.value, 0, 1000) === null) {
+    toast('Carga inválida: use um número em kg (ex.: 12,5).');
+    el.value = it.carga;
+  }
+  if (el.dataset.campo === 'seriesReps' && seriesReps(el.value) === null) {
+    toast('Use o formato séries x repetições, ex.: 3x12.');
+    el.value = it.series && it.reps ? `${it.series}x${it.reps}` : '';
   }
 });
 
@@ -2182,7 +2521,12 @@ if ('serviceWorker' in navigator) {
 // Pede ao navegador para não apagar os dados em caso de pouco espaço
 navigator.storage?.persist?.().catch(() => {});
 
-window.addEventListener('hashchange', () => { window.scrollTo({ top: 0, behavior: 'instant' }); render(true); });
+window.addEventListener('hashchange', () => {
+  // Voltar no navegador com um modal aberto: o modal era de outra tela, então fecha (não grava nada)
+  if (modalAberto() && modalRota !== location.hash) fecharModal();
+  window.scrollTo({ top: 0, behavior: 'instant' });
+  render(true);
+});
 render(true);
 
 // Contas ativadas: carrega o Firebase (módulo separado, só quando configurado)

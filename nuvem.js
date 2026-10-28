@@ -30,16 +30,45 @@ let pararEscuta = null;
 const LETRAS_CODIGO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sem 0/O e 1/I, para não confundir
 const novoCodigo = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (n) => LETRAS_CODIGO[n % 32]).join('');
 
+// O que vem dos grupos foi escrito por OUTRAS pessoas: só passa o que tem o formato esperado
+// (ids gerados pelo Firestore ou códigos de grupo, textos curtos, foto/avatar em formato de imagem)
+const CODIGO_OK = /^[A-HJ-NP-Z2-9]{6}$/;
+const ID_OK = /^[A-Za-z0-9]{1,40}$/;
+const texto = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+// Imagens só embutidas (data:) — ou a foto do Google no avatar. Nada de URL qualquer, que viraria "pixel de rastreio"
+const imagem = (v, max, re = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/) => (typeof v === 'string' && v.length <= max && re.test(v) ? v : '');
+const AVATAR_OK = /^(data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+|https:\/\/lh\d\.googleusercontent\.com\/[\w\-./=?&%]+)$/;
+const pessoaPublica = (d) => ({ uid: texto(d.uid, 128), nome: texto(d.nome, 60) || '?', avatar: imagem(d.avatar, 60000, AVATAR_OK) });
+
 function criarSocial() {
   const grupos = collection(db, 'grupos');
   const membros = (g) => collection(db, 'grupos', g, 'membros');
   const posts = (g) => collection(db, 'grupos', g, 'posts');
   const comentarios = (g, p) => collection(db, 'grupos', g, 'posts', p, 'comentarios');
   const eu = () => auth.currentUser.uid;
-  const comData = (d) => {
-    const dados = d.data({ serverTimestamps: 'estimate' });
-    return { id: d.id, ...dados, criado: dados.criado?.toMillis?.() ?? Date.now() };
+  const criadoEm = (d) => {
+    const v = d.data({ serverTimestamps: 'estimate' }).criado;
+    return typeof v?.toMillis === 'function' ? v.toMillis() : Date.now();
   };
+  const limparGrupo = (d) => {
+    const g = d.data();
+    return { id: d.id, nome: texto(g.nome, 40) || 'Grupo', criador: texto(g.criador, 128), membros: Array.isArray(g.membros) ? g.membros.filter((m) => typeof m === 'string') : [] };
+  };
+  const limparMembro = (d) => {
+    const m = d.data();
+    const dias = Array.isArray(m.dias) ? m.dias.filter((x) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x)).slice(-800) : [];
+    return { ...pessoaPublica(m), uid: d.id, dias };
+  };
+  const limparPost = (d) => {
+    const p = d.data();
+    return {
+      ...pessoaPublica(p), id: d.id, criado: criadoEm(d),
+      foto: imagem(p.foto, 1000000), legenda: texto(p.legenda, 300),
+      curtidas: Array.isArray(p.curtidas) ? [...new Set(p.curtidas.filter((u) => typeof u === 'string'))] : [],
+      nComentarios: Math.max(0, Math.min(9999, Math.floor(Number(p.nComentarios) || 0))),
+    };
+  };
+  const limparComentario = (d) => ({ ...pessoaPublica(d.data()), id: d.id, criado: criadoEm(d), texto: texto(d.data().texto, 300) });
 
   async function apagarPost(g, p) {
     const cs = await getDocs(comentarios(g, p));
@@ -49,10 +78,11 @@ function criarSocial() {
 
   return {
     ouvirGrupos: (aoMudar, aoErro) => onSnapshot(query(grupos, where('membros', 'array-contains', eu())),
-      (s) => aoMudar(s.docs.map((d) => ({ id: d.id, ...d.data() }))), aoErro),
+      (s) => aoMudar(s.docs.filter((d) => CODIGO_OK.test(d.id)).map(limparGrupo)), aoErro),
     ouvirGrupo(g, aoMembros, aoPosts, aoErro) {
-      const a = onSnapshot(membros(g), (s) => aoMembros(s.docs.map((d) => ({ uid: d.id, ...d.data() }))), aoErro);
-      const b = onSnapshot(query(posts(g), orderBy('criado', 'desc'), limit(40)), (s) => aoPosts(s.docs.map(comData)), aoErro);
+      const a = onSnapshot(membros(g), (s) => aoMembros(s.docs.filter((d) => ID_OK.test(d.id)).map(limparMembro)), aoErro);
+      const b = onSnapshot(query(posts(g), orderBy('criado', 'desc'), limit(40)),
+        (s) => aoPosts(s.docs.filter((d) => ID_OK.test(d.id)).map(limparPost)), aoErro);
       return () => { a(); b(); };
     },
     async criarGrupo(nome) {
@@ -67,8 +97,9 @@ function criarSocial() {
       }
     },
     async verGrupo(id) {
+      if (!CODIGO_OK.test(id)) return null;
       const d = await getDoc(doc(grupos, id));
-      return d.exists() ? { id, ...d.data() } : null;
+      return d.exists() ? limparGrupo(d) : null;
     },
     entrarGrupo: (id) => updateDoc(doc(grupos, id), { membros: arrayUnion(eu()) }),
     // Sai do grupo apagando os próprios posts e a entrada no ranking; o último a sair apaga o grupo
@@ -89,7 +120,7 @@ function criarSocial() {
     },
     apagarPost,
     curtir: (g, p, sim) => updateDoc(doc(posts(g), p), { curtidas: sim ? arrayUnion(eu()) : arrayRemove(eu()) }),
-    comentarios: async (g, p) => (await getDocs(query(comentarios(g, p), orderBy('criado')))).docs.map(comData),
+    comentarios: async (g, p) => (await getDocs(query(comentarios(g, p), orderBy('criado')))).docs.filter((d) => ID_OK.test(d.id)).map(limparComentario),
     async comentar(g, p, dados) {
       await addDoc(comentarios(g, p), { ...dados, uid: eu(), criado: serverTimestamp() });
       await updateDoc(doc(posts(g), p), { nComentarios: increment(1) });

@@ -15,6 +15,7 @@
   --negativo: #e11d48;
   --alerta: #d97706;
   --raio: 20px;
+  --altura-topo: 58px; /* altura da barra do topo: as datas e a barra do treino grudam logo abaixo dela */
   --raio-p: 12px;
   --sombra: 0 1px 2px rgb(16 32 31 / .04), 0 8px 24px -12px rgb(16 32 31 / .12);
   --sombra-alta: 0 12px 40px -8px rgb(16 32 31 / .25);
@@ -230,7 +231,7 @@ button.item:active { background: var(--superficie-3); }
 .item-sub { font-size: 13px; color: var(--texto-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-valor { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dia {
-  position: sticky; top: 58px; z-index: 1;
+  position: sticky; top: var(--altura-topo); z-index: 1;
   padding: 8px 16px 6px; font-size: 12px; font-weight: 700; color: var(--texto-2);
   background: color-mix(in srgb, var(--superficie-2) 92%, transparent);
   backdrop-filter: blur(8px);
@@ -361,7 +362,7 @@ label.check { display: flex; gap: 10px; align-items: center; margin-bottom: 14px
 .ex-linha.feito .item-titulo { color: var(--texto-2); text-decoration: line-through; text-decoration-color: var(--acento); }
 .ex-campos { display: flex; gap: 6px; flex: none; }
 .ex-campos input { width: 66px; padding: 8px 6px; text-align: center; }
-.sessao-barra { position: sticky; top: 58px; z-index: 2; margin: -6px 0 12px; }
+.sessao-barra { position: sticky; top: var(--altura-topo); z-index: 2; margin: -6px 0 12px; }
 .sessao-barra .progresso { margin-top: 0; height: 5px; }
 .sessao-barra .progresso > div { animation: none; transition: width .5s var(--suave); }
 

@@ -1,6 +1,6 @@
 // Service worker: rede primeiro (sempre pega a versão nova quando online),
 // cache como reserva para funcionar offline.
-const CACHE = 'tetis-v21';
+const CACHE = 'tetis-v22';
 const ARQUIVOS = [
   './',
   './index.html',
@@ -42,8 +42,7 @@ self.addEventListener('fetch', (e) => {
   if (req.url.startsWith(CDN_FIREBASE)) {
     e.respondWith(
       caches.match(req).then((r) => r || fetch(req).then((resp) => {
-        const copia = resp.clone();
-        caches.open(CACHE).then((c) => c.put(req, copia));
+        if (resp.ok) { const copia = resp.clone(); caches.open(CACHE).then((c) => c.put(req, copia)); }
         return resp;
       }))
     );
@@ -55,8 +54,8 @@ self.addEventListener('fetch', (e) => {
     // no-cache: sempre confere com o servidor, para nunca ficar preso numa versão antiga
     fetch(req, { cache: 'no-cache' })
       .then((resp) => {
-        const copia = resp.clone();
-        caches.open(CACHE).then((c) => c.put(req, copia));
+        // Só guarda resposta boa: um erro 404/500 passageiro não pode substituir a cópia offline
+        if (resp.ok) { const copia = resp.clone(); caches.open(CACHE).then((c) => c.put(req, copia)); }
         return resp;
       })
       .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('./index.html')))

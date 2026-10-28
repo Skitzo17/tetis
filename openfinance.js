@@ -9,7 +9,26 @@
 
 const PLUGGY_API = 'https://api.pluggy.ai';
 const pluggyConfig = () => state.integracoes?.pluggy || null;
-const pluggyConectado = () => !!(pluggyConfig()?.clientId && pluggyConfig()?.clientSecret && pluggyConfig()?.itens?.length);
+const pluggyConectado = () => !!(pluggyConfig()?.clientId && pluggySegredo() && pluggyConfig()?.itens?.length);
+// Configurado em outro aparelho, mas o Client Secret ainda não foi digitado neste
+const pluggyFaltaSegredo = () => !!(pluggyConfig()?.clientId && pluggyConfig()?.itens?.length && !pluggySegredo());
+
+// O Client Secret fica SÓ neste aparelho: não vai para a nuvem nem para o backup. Assim, quem chegar aos dados
+// da conta (na nuvem ou num backup) não consegue abrir o banco. Em outro aparelho, é preciso digitar de novo.
+const chaveSegredo = () => `tetis-pluggy:${conta.usuario?.uid || 'local'}`;
+function guardarSegredo(segredo) {
+  try { if (segredo) localStorage.setItem(chaveSegredo(), segredo); else localStorage.removeItem(chaveSegredo()); } catch (e) { /* sem armazenamento */ }
+}
+function pluggySegredo() {
+  const cfg = pluggyConfig();
+  // Versões antigas guardavam o secret junto dos dados (e, por isso, na nuvem): passa para o aparelho e apaga de lá
+  if (cfg?.clientSecret) {
+    guardarSegredo(cfg.clientSecret);
+    delete cfg.clientSecret;
+    salvar();
+  }
+  try { return localStorage.getItem(chaveSegredo()) || ''; } catch (e) { return ''; }
+}
 
 class ErroPluggy extends Error {}
 
@@ -46,13 +65,22 @@ async function pluggyAutenticar(clientId, clientSecret) {
 
 // Transações de uma conta. Tenta a listagem nova (v2, por cursor "next") e cai para a antiga (paginada) se precisar.
 async function pluggyTransacoes(apiKey, contaId, de, ate) {
+  return unicasPorId(await buscarTransacoes(apiKey, contaId, de, ate));
+}
+// Se a v2 falha no meio e cai para a listagem antiga, as primeiras páginas vêm duas vezes: fica uma de cada
+const unicasPorId = (lista) => { const vistas = new Set(); return lista.filter((t) => t?.id == null || (!vistas.has(t.id) && vistas.add(t.id))); };
+
+async function buscarTransacoes(apiKey, contaId, de, ate) {
   const todas = [];
   // "next" vem como query string com o cursor em "after" (base64): tira só o cursor e manda de volta
   // junto com os mesmos filtros — a v2 recusa parâmetros que não conhece
   const cursor = (next) => {
     const s = String(next).trim();
     const m = s.match(/(?:^|[?&])after=([^&]*)/);
-    const bruto = m ? m[1] : s.includes('=') ? '' : s;
+    // Sem "after=": se parece query string, não tem cursor; senão é o próprio cursor (base64 pode terminar em "=")
+    // (base64 pode começar com "/": só é caminho se tiver "?" ou "/v2/")
+    const pareceQuery = /^\?|^https?:|\?|\/v2\/|&|^(accountId|dateFrom|dateTo|ids|createdAtFrom)=/.test(s);
+    const bruto = m ? m[1] : pareceQuery ? '' : s;
     try { return decodeURIComponent(bruto); } catch (e) { return bruto; }
   };
   try {
@@ -120,7 +148,7 @@ const CATEGORIAS_PLUGGY = [
   [/pharmacy|health|hospital|clinic|lab|dentist|doctor|optician/i, 'Saúde'],
   [/gym|fitness|sport/i, 'Academia'],
   [/streaming|digital service|subscription|software/i, 'Assinaturas'],
-  [/leisure|entertainment|ticket|cinema|bar|game|tourism|hotel|travel/i, 'Lazer'],
+  [/leisure|entertainment|ticket|cinema|\bbars?\b|\bgames?\b|tourism|hotel|travel/i, 'Lazer'],
   [/shopping|clothing|electronics|department|marketplace|online/i, 'Compras'],
   [/education|school|university|course|book/i, 'Educação'],
   [/transfer|pix|ted|doc/i, 'Transferências'],
@@ -139,14 +167,33 @@ function categoriaPluggy(t, valor) {
   return categorizar(t.descricao, valor);
 }
 
-const PAGAMENTO_FATURA = /pagamento.{0,20}fatura|pgto.{0,10}fatura|fatura.{0,10}cart|credit card payment|card bill/i;
+// "Pagamento de fatura", "PAGTO FATURA", "PAG FATURA ITAU", "Pgto cartão de crédito", "Credit card payment"…
+// Mas não "PAG FATURA CLARO" nem "Pagamento fatura de energia": fatura de conta de consumo é gasto de verdade.
+const PAGAMENTO_FATURA = new RegExp([
+  String.raw`^\s*(pagamento|pagto|pgto|pag)\s+(de\s+|da\s+)?fatura\s*$`,                               // "Pagamento de fatura" (Nubank)
+  String.raw`\b(pagamento|pagto|pgto|pag)\b.{0,15}\bfat(ura)?\b.{0,20}(cart|cr[eé]d|nubank|nu\b|ita[uú]|bradesco|santander|inter\b|c6|caixa|\bbb\b|visa|master|elo\b|amex|hipercard|porto)`,
+  String.raw`\b(pagamento|pagto|pgto|pag)\b.{0,15}\bcart[aã]o( de)? cr[eé]d`,                          // "Pgto cartão de crédito"
+  String.raw`fatura.{0,10}cart[aã]o`, String.raw`credit card (bill )?payment`, String.raw`card bill payment`, String.raw`credit card bill`,
+].join('|'), 'i');
+// No extrato do cartão, o pagamento da fatura aparece como um crédito ("Pagamento recebido")
+const PAGAMENTO_NO_CARTAO = /\b(pagamento|pagto|pgto)\b.{0,12}\b(recebido|efetuado|realizado)|^pagamento$|payment received/i;
 
 // Guardar na caixinha / aplicar / resgatar só muda o dinheiro de lugar: não é gasto nem receita.
 // O valor guardado vem do saldo real dos investimentos (ver saldos em sincronizarBancos).
-const MOV_GUARDADO_DESC = /aplica[cç][aã]o|resgate|caixinha|dinheiro guardado|dinheiro resgatado|guardad[oa] na|\brdb\b|\bcdb\b|\blci\b|\blca\b|tesouro direto|poupan[cç]a/i;
+// "Poupança" sozinha não basta (pode ser o sobrenome de quem recebeu um Pix): precisa vir com depósito/transferência/aplicação.
+// Aplicação/resgate e caixinha só contam com contexto de investimento: "Resgate Pet Shop" e "Caixinha Lanches" são lojas.
+const INVEST = String.raw`(rdb|cdb|lci|lca|caixinha|poupan[cç]a|tesouro|fundo|investimento|aplica[cç][aã]o)`;
+const MOV_GUARDADO_DESC = new RegExp([
+  String.raw`^\s*aplica[cç][aã]o\b`, String.raw`aplica[cç][aã]o( autom|.{0,15}${INVEST})`, String.raw`resgate.{0,15}${INVEST}`,
+  'dinheiro guardado', 'dinheiro resgatado', String.raw`guardad[oa] na caixinha`, String.raw`\b(para|na|da) caixinha`,
+  String.raw`\b(rdb|cdb|lci|lca)\b`, 'tesouro direto',
+  String.raw`(dep[oó]sito|transf\w*|movimenta\w*)\s+(para|na|da|a)\s+(a\s+)?poupan[cç]a`, String.raw`dep[oó]sito\s+poupan[cç]a`, String.raw`poupan[cç]a autom`,
+].join('|'), 'i');
 const MOV_GUARDADO_CAT = /^(investments?|fixed income|variable income|mutual funds?|savings|pension|investimentos?)\b/i;
 function ehMovimentoGuardado(descricao = '', categoria = '') {
-  if (/rendimento|juros|dividend|yield|interest|income/i.test(`${descricao} ${categoria}`) && !/fixed income|variable income/i.test(categoria)) return false;
+  // Rendimento é ganho de verdade (vira receita), mesmo vindo da caixinha. "Income" genérico não conta:
+  // uma "Aplicação automática" pode vir com categoria Income e continua sendo só dinheiro mudando de lugar
+  if (/rendimento|juros|dividend|yield/i.test(descricao) || /interest|dividend|yield|investment income/i.test(categoria || '')) return false;
   return MOV_GUARDADO_DESC.test(descricao) || MOV_GUARDADO_CAT.test(categoria || '');
 }
 
@@ -159,13 +206,16 @@ function converterTransacao(tp, conta) {
   const descricao = (tp.description || tp.descriptionRaw || 'Sem descrição').trim();
   // Pagar a fatura aparece na conta E já existem as compras do cartão: ignora para não contar duas vezes
   if (PAGAMENTO_FATURA.test(`${descricao} ${tp.category || ''}`)) return null;
+  if (cartao && bruto < 0 && PAGAMENTO_NO_CARTAO.test(descricao)) return null;
   if (ehMovimentoGuardado(descricao, tp.category)) return null;
   // Cartão: compra vem positiva (vira despesa); conta: débito já vem negativo
+  const data = String(tp.date).slice(0, 10);
+  if (!dataValida(data)) return null; // data estranha vinda da API não entra
   const valor = Math.round((cartao ? -bruto : bruto) * 100) / 100;
   const categoria = categoriaPluggy({ descricao, categoria: tp.category }, valor);
   if (categoria === null) return null;
   return {
-    id: uid(), data: String(tp.date).slice(0, 10), descricao, valor, categoria,
+    id: uid(), data, descricao: descricao.slice(0, 200), valor, categoria,
     origem: 'openfinance', conta: conta.marketingName || conta.name || '', chave: `p:${tp.id}`, catPluggy: tp.category || '',
   };
 }
@@ -177,7 +227,7 @@ async function sincronizarBancos({ silencioso = false } = {}) {
   ui.sincronizandoBancos = true;
   if (!silencioso) render();
   try {
-    const apiKey = await pluggyAutenticar(cfg.clientId, cfg.clientSecret);
+    const apiKey = await pluggyAutenticar(cfg.clientId, pluggySegredo());
     // Enquanto o histórico completo não foi baixado: busca tudo o que o banco tiver (até ~2 anos, em blocos de 3 meses).
     // Depois: só desde a última sincronização, com folga de 10 dias
     const completo = !cfg.historicoCompleto || ui.forcarHistorico;
@@ -185,8 +235,17 @@ async function sincronizarBancos({ silencioso = false } = {}) {
     const buscar = (contaId, erros) => (completo ? pluggyHistorico(apiKey, contaId, 730, erros) : pluggyTransacoes(apiKey, contaId, diaISO(-diasNovos), hoje()));
     const porConta = []; // o que a Pluggy entregou de cada conta (aparece no cartão dos bancos)
     let deuErro = false;
-    // Limpa aplicações/resgates que entraram como gasto/receita em versões anteriores
-    state.transacoes = state.transacoes.filter((t) => !(t.origem === 'openfinance' && ehMovimentoGuardado(t.descricao, t.catPluggy)));
+    // Limpeza única (versão 2): tira aplicações/resgates e pagamentos de fatura que versões anteriores importaram como
+    // gasto/receita. Roda UMA vez só (a sincronização de rotina busca só os últimos dias, então nada apagado voltaria)
+    // e nunca mexe em lançamento que a pessoa corrigiu à mão.
+    if ((cfg.limpezaV || 0) < 2) {
+      const antes = state.transacoes.length;
+      state.transacoes = state.transacoes.filter((t) => !(t.origem === 'openfinance' && !t.catManual
+        && (ehMovimentoGuardado(t.descricao, t.catPluggy) || PAGAMENTO_FATURA.test(`${t.descricao} ${t.catPluggy || ''}`))));
+      cfg.limpezaV = 2;
+      const saiu = antes - state.transacoes.length;
+      if (saiu) toast(`${saiu} ${saiu === 1 ? 'lançamento de pagamento de fatura ou aplicação saiu' : 'lançamentos de pagamento de fatura ou aplicação saíram'} dos gastos.`);
+    }
     const existentes = new Set(state.transacoes.map((t) => t.chave).filter(Boolean));
     let novos = 0, contas = 0;
     const problemas = [];
@@ -234,14 +293,26 @@ async function sincronizarBancos({ silencioso = false } = {}) {
         problemas.push(`${item.banco || item.id.slice(0, 8)}: ${e.status === 404 || e.status === 400 ? 'Item ID não encontrado' : e.message}`);
       }
     }
-    cfg.ultimaSync = Date.now();
-    if (completo && !deuErro) cfg.historicoCompleto = true; // se algo falhou, tenta o histórico inteiro de novo na próxima
     ui.forcarHistorico = false;
+    // Durante os "await" os dados podem ter sido trocados (chegou versão da nuvem, backup restaurado, bancos desconectados):
+    // grava o resultado na configuração ATUAL, e não na que existia quando a sincronização começou
+    const destino = pluggyConfig();
+    if (!destino) return; // desconectou no meio: não grava nada
+    for (const item of cfg.itens) {
+      const atual = destino.itens?.find((i) => i.id === item.id);
+      if (atual) Object.assign(atual, { banco: item.banco, status: item.status });
+    }
+    // Se o estado foi trocado no meio, um lançamento pode ter entrado duas vezes: fica um por chave
+    const vistas = new Set();
+    state.transacoes = state.transacoes.filter((t) => !t.chave || (!vistas.has(t.chave) && vistas.add(t.chave)));
+    destino.ultimaSync = Date.now();
+    destino.limpezaV = Math.max(destino.limpezaV || 0, cfg.limpezaV || 0);
+    if (completo && !deuErro) destino.historicoCompleto = true; // se algo falhou, tenta o histórico inteiro de novo na próxima
     const doBanco = state.transacoes.filter((t) => t.origem === 'openfinance').map((t) => t.data).sort();
     // O resumo por conta só vale para a busca completa (a de rotina pega só os últimos dias)
-    const lidoPorConta = completo ? porConta : cfg.ultimoResultado?.porConta;
-    cfg.ultimoResultado = { novos, contas, problemas, quando: Date.now(), desde: doBanco[0] || '', porConta: lidoPorConta || [] };
-    if (saldos.contas.length) cfg.saldos = { ...saldos, quando: Date.now() };
+    const lidoPorConta = completo ? porConta : destino.ultimoResultado?.porConta;
+    destino.ultimoResultado = { novos, contas, problemas, quando: Date.now(), desde: doBanco[0] || '', porConta: lidoPorConta || [] };
+    if (saldos.contas.length) destino.saldos = { ...saldos, quando: Date.now() };
     salvar();
     if (!silencioso || novos) toast(novos ? `${novos} lançamentos novos dos seus bancos.` : 'Tudo em dia: nenhum lançamento novo.');
     if (problemas.length && !silencioso) toast(problemas[0]);
@@ -266,6 +337,14 @@ function sincronizarSeAntigo() {
 // ---------- Telas ----------
 function cardBancos() {
   const cfg = pluggyConfig();
+  if (pluggyFaltaSegredo()) {
+    return `<button class="card link fin-conectar" data-act="conectarBanco">
+      <span class="card-icone">${ic('wallet')}</span>
+      <span class="item-corpo"><span class="item-titulo">Digite o Client Secret neste aparelho</span>
+        <span class="item-sub">Seus bancos já estão configurados. Por segurança, o Client Secret fica só no aparelho onde foi digitado.</span></span>
+      <span class="muted">${ic('chevron-right')}</span>
+    </button>`;
+  }
   if (!pluggyConectado()) {
     return `<button class="card link fin-conectar" data-act="conectarBanco">
       <span class="card-icone">${ic('wallet')}</span>
@@ -385,24 +464,24 @@ function formConectarBanco() {
       <p>É o plano pessoal gratuito da Pluggy: só funciona com contas <b>do seu CPF</b>. Cada pessoa do app usa a própria conta.</p>
     </details>
     <label class="campo"><span>Client ID</span><input name="clientId" required autocomplete="off" spellcheck="false" value="${esc(cfg.clientId)}"></label>
-    <label class="campo"><span>Client Secret</span><input name="clientSecret" type="password" required autocomplete="off" value="${esc(cfg.clientSecret)}"></label>
+    <label class="campo"><span>Client Secret</span><input name="clientSecret" type="password" required autocomplete="off" value="${esc(cfg.clientSecret || pluggySegredo())}"></label>
     <div class="linha-titulo"><span class="campo-rotulo">Bancos</span></div>
     <button type="button" class="btn primario bloco" data-act="pluggyWidget" style="margin:8px 0 10px">${ic('plus')} Conectar banco pelo Meu Pluggy</button>
     <div id="pluggy-itens" class="pluggy-itens">${(cfg.itens?.length ? cfg.itens : [{}]).map(blocoItemId).join('')}</div>
     <button type="button" class="link-btn" data-act="pluggyAdicionarItem" style="font-size:13px">ou colar outro Item ID manualmente</button>
     <div class="acoes" style="margin-top:10px"><button type="button" class="btn pequeno" data-act="pluggyTestar">Testar conexão</button></div>
     <div id="pluggy-resultado" class="pluggy-resultado">${mensagem}</div>
-    <p class="dica" style="margin-top:10px">${ic('check', 'ic-inline')} Suas chaves ficam guardadas só na sua conta (ninguém mais consegue ler) e não vão no backup.</p>
+    <p class="dica" style="margin-top:10px">${ic('check', 'ic-inline')} O Client Secret fica guardado <b>só neste aparelho</b>: não vai para a nuvem nem para o backup.
+      Em outro celular ou computador, é só digitar ele de novo.</p>
     ${cfg.clientId ? '<div class="modal-extra"><button type="button" class="btn pequeno perigo" data-act="desconectarBancos">Desconectar bancos</button></div>' : ''}
   `, (d, fd) => {
     const itens = fd.getAll('item_id').map((v) => String(v).trim()).filter(Boolean);
     if (!itens.length) throw new Error('Adicione pelo menos um Item ID.');
     const antigos = Object.fromEntries((cfg.itens || []).map((i) => [i.id, i]));
     state.integracoes = { ...(state.integracoes || {}) };
-    state.integracoes.pluggy = {
-      ...cfg, clientId: d.clientId.trim(), clientSecret: d.clientSecret.trim(),
-      itens: itens.map((id) => antigos[id] || { id }),
-    };
+    const { clientSecret, ...semSegredo } = cfg;
+    state.integracoes.pluggy = { ...semSegredo, clientId: d.clientId.trim(), itens: itens.map((id) => antigos[id] || { id }) };
+    guardarSegredo(d.clientSecret.trim());
     toast('Bancos salvos. Buscando seus lançamentos…');
     setTimeout(() => sincronizarBancos(), 300);
   }, { ok: 'Salvar e sincronizar' });

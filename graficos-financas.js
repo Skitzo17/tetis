@@ -24,16 +24,19 @@ const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 's
 const nomeMes = (m) => `${MESES[+m.slice(5) - 1]} ${m.slice(0, 4)}`;
 function brlCurto(v) {
   if (ui.ocultarValores) return VALOR_OCULTO;
-  const a = Math.abs(v), s = v < 0 ? '−' : '';
-  if (a >= 1e6) return `${s}R$ ${(a / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`;
-  if (a >= 1e3) return `${s}R$ ${(a / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;
+  // Os limites consideram o arredondamento: 999.950 já é "1 mi" (e não "1.000 mil"); 999,6 já é "1 mil"
+  const a = Math.abs(v);
+  const s = v < 0 && Math.round(a) > 0 ? '−' : '';
+  if (a >= 999950) return `${s}R$ ${(a / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`;
+  if (a >= 999.5) return `${s}R$ ${(a / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;
   return `${s}R$ ${Math.round(a)}`;
 }
 const somarMes = (m, n) => { const d = new Date(+m.slice(0, 4), +m.slice(5) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 
 // Saldos reais vindos do banco (Open Finance), se a pessoa conectou: conta, guardado e fatura
 function saldosReais() {
-  const s = typeof pluggyConectado === 'function' && pluggyConectado() ? pluggyConfig().saldos : null;
+  // Os saldos vêm da última sincronização (de qualquer aparelho), mesmo que este ainda não tenha o Client Secret
+  const s = typeof pluggyConfig === 'function' && pluggyConfig()?.itens?.length ? pluggyConfig().saldos : null;
   if (!s?.contas?.length) return null;
   const soma = (lista) => lista.reduce((a, x) => a + x.saldo, 0);
   const naConta = soma(s.contas.filter((c) => c.tipo === 'BANK' && c.subtipo !== 'SAVINGS_ACCOUNT'));
@@ -59,10 +62,14 @@ function historicoMensal() {
   }
   const real = saldosReais();
   if (real) {
-    let acumulado = real.total;
-    for (let i = meses.length - 1; i >= 0; i--) { meses[i].acumulado = acumulado; acumulado -= meses[i].saldo; }
+    // O saldo do banco é o de HOJE: ancora no mês atual (um lançamento agendado para o futuro não pode deslocar a âncora)
+    let iHoje = meses.findIndex((m) => m.mes === hoje().slice(0, 7));
+    if (iHoje < 0) iHoje = meses.length - 1;
+    meses[iHoje].acumulado = real.total;
+    for (let i = iHoje - 1; i >= 0; i--) meses[i].acumulado = meses[i + 1].acumulado - meses[i + 1].saldo;
+    for (let i = iHoje + 1; i < meses.length; i++) meses[i].acumulado = meses[i - 1].acumulado + meses[i].saldo;
   } else {
-    let acumulado = parseNum(state.config.saldoInicial) || 0;
+    let acumulado = numeroCampo(state.config.saldoInicial, -1e9, 1e9) || 0;
     for (const m of meses) { acumulado += m.saldo; m.acumulado = acumulado; }
   }
   return meses;
@@ -143,7 +150,7 @@ function graficoMeses(meses) {
     }).join('');
     const linhas = ordem.filter((c) => m.porCat[c]).map((c) => [c, brl(m.porCat[c]), corCategoria(c)]);
     linhas.push(['Total', brl(m.despesas)]);
-    return `<g class="fin-barra ${m.mes === ui.mes ? 'atual' : ''}" data-act="mesIr" data-v="${m.mes}" data-tip="${dicaJson(nomeMes(m.mes), linhas)}">
+    return `<g class="fin-barra ${m.mes === ui.mes ? 'atual' : ''}" data-act="mesIr" data-v="${esc(m.mes)}" data-tip="${dicaJson(nomeMes(m.mes), linhas)}">
       <rect class="fin-barra-fundo" x="${(padX + i * slot).toFixed(1)}" y="0" width="${slot.toFixed(1)}" height="${H}"/>
       ${blocos}
       <text class="fin-eixo" x="${(x + larg / 2).toFixed(1)}" y="${H - 7}" text-anchor="middle">${MESES_CURTOS[+m.mes.slice(5) - 1]}</text>
@@ -155,6 +162,8 @@ function graficoMeses(meses) {
 
 // ---------- Mapa de blocos (treemap "squarified") ----------
 function squarify(itens, x, y, w, h) {
+  itens = itens.map((i) => ({ ...i, v: Number(i.v) })).filter((i) => i.v > 0); // área zero dividiria por zero
+  if (!itens.length) return [];
   const total = itens.reduce((a, b) => a + b.v, 0) || 1, escala = (w * h) / total, saida = [];
   let resto = itens.map((i) => ({ ...i, a: i.v * escala }));
   const pior = (linha, lado) => {
@@ -290,7 +299,7 @@ function animarNumeros() {
     let dados;
     try { dados = JSON.parse(el.dataset.tip); } catch (e) { return; }
     tip.innerHTML = `<div class="fin-tip-titulo">${esc(dados.titulo)}</div>${dados.linhas.map(([rot, val, cor]) =>
-      `<div class="fin-tip-linha"><span>${cor ? `<i style="background:${cor}"></i>` : ''}${esc(rot)}</span><b>${esc(val)}</b></div>`).join('')}`;
+      `<div class="fin-tip-linha"><span>${/^#[0-9a-f]{3,8}$/i.test(cor || '') ? `<i style="background:${cor}"></i>` : ''}${esc(rot)}</span><b>${esc(val)}</b></div>`).join('')}`;
     tip.classList.add('visivel');
     const r = tip.getBoundingClientRect();
     let l = x + 14, t = y - r.height - 12;

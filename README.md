@@ -30,43 +30,78 @@ Depois, abra http://localhost:5180.
        function eu() { return request.auth.uid; }
        function grupo(g) { return get(/databases/$(database)/documents/grupos/$(g)).data; }
        function membro(g) { return logado() && eu() in grupo(g).membros; }
+       // Tudo o que vai para os grupos é lido por outras pessoas: formato e tamanho são conferidos aqui
+       function codigoOk(g) { return g.matches('^[A-HJ-NP-Z2-9]{6}$'); }
+       function idOk(id) { return id.matches('^[A-Za-z0-9]{20}$'); }
+       function texto(v, max) { return v is string && v.size() <= max; }
+       // Imagem embutida: confere o cabeçalho com split (uma regex sobre ~1 MB de base64 pode estourar o limite das regras)
+       function imagem(v, max) { return v is string && v.size() <= max
+                                   && v.split(',')[0] in ['data:image/jpeg;base64', 'data:image/png;base64', 'data:image/webp;base64']; }
+       function avatar(v) { return v == '' || imagem(v, 60000)
+                            || (texto(v, 2000) && v.matches('^https://lh[0-9][.]googleusercontent[.]com/.+')); }
+       function novo() { return request.resource.data; }
+       function mudou() { return request.resource.data.diff(resource.data).affectedKeys(); }
 
-       // Dados privados: cada pessoa só lê e grava os próprios
-       match /usuarios/{uid}/{documento=**} {
-         allow read, write: if logado() && eu() == uid;
+       // Dados privados: cada pessoa só lê e grava os próprios, e só nas partes que o app usa
+       // (base, perfil, sessoes-AAAA, transacoes-AAAA), com até ~1 MB cada
+       match /usuarios/{uid}/partes/{id} {
+         allow read, delete: if logado() && eu() == uid;
+         allow create, update: if logado() && eu() == uid
+           && id.matches('^(base|perfil|(sessoes|transacoes)-[0-9]{4})$')
+           && novo().keys().hasOnly(['json', 'atualizado']) && novo().json is string && novo().json.size() < 1000000;
        }
 
-       // Grupos (o id é o código de convite)
+       // Grupos (o id é o código de convite, 6 letras/números)
        match /grupos/{g} {
-         allow get: if logado();                                  // ver o nome antes de entrar, com o código
+         allow get: if logado() && codigoOk(g);                   // ver o nome antes de entrar, com o código
          allow list: if logado() && eu() in resource.data.membros; // listar só os meus grupos
-         allow create: if logado() && request.resource.data.criador == eu()
-                       && request.resource.data.membros == [eu()];
+         allow create: if logado() && codigoOk(g)
+           && novo().keys().hasOnly(['nome', 'criador', 'membros', 'criado'])
+           && texto(novo().nome, 40) && novo().nome.size() > 0
+           && novo().criador == eu() && novo().membros == [eu()] && novo().criado == request.time;
          // Alterar só a lista de membros, e só para entrar ou sair a si mesmo
          allow update: if logado()
-           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membros'])
-           && (request.resource.data.membros.toSet() == resource.data.membros.toSet().union([eu()].toSet())
-               || request.resource.data.membros.toSet() == resource.data.membros.toSet().difference([eu()].toSet()));
+           && mudou().hasOnly(['membros']) && novo().membros.size() <= 50
+           && (novo().membros.toSet() == resource.data.membros.toSet().union([eu()].toSet())
+               || novo().membros.toSet() == resource.data.membros.toSet().difference([eu()].toSet()));
          allow delete: if logado() && (resource.data.criador == eu() || resource.data.membros == [eu()]);
 
-         // Ranking: cada membro grava só a própria entrada
+         // Ranking: cada membro grava só a própria entrada, com campos e tamanhos limitados
          match /membros/{uid} {
            allow read: if membro(g);
-           allow create, update: if membro(g) && eu() == uid;
+           allow create, update: if membro(g) && eu() == uid
+             && novo().keys().hasOnly(['nome', 'avatar', 'dias', 'atualizado'])
+             && texto(novo().nome, 60) && avatar(novo().avatar)
+             && novo().dias is list && novo().dias.size() <= 800
+             && novo().atualizado == request.time;
            allow delete: if logado() && eu() == uid;
          }
 
          // Feed
          match /posts/{p} {
            allow read: if membro(g);
-           allow create: if membro(g) && request.resource.data.uid == eu();
-           allow update: if membro(g)
-             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['curtidas', 'nComentarios']);
+           allow create: if membro(g) && idOk(p)
+             && novo().keys().hasOnly(['uid', 'nome', 'avatar', 'foto', 'legenda', 'curtidas', 'nComentarios', 'criado'])
+             && novo().uid == eu() && texto(novo().nome, 60) && avatar(novo().avatar)
+             && imagem(novo().foto, 950000) && texto(novo().legenda, 300)
+             && novo().curtidas == [] && novo().nComentarios == 0 && novo().criado == request.time;
+           // Curtir/descurtir: só o próprio uid entra ou sai da lista. Comentários: o contador anda de 1 em 1
+           allow update: if membro(g) && (
+             (mudou().hasOnly(['curtidas']) && novo().curtidas.size() <= 200
+               && novo().curtidas.size() == novo().curtidas.toSet().size()
+               && (novo().curtidas.toSet() == resource.data.curtidas.toSet().union([eu()].toSet())
+                   || novo().curtidas.toSet() == resource.data.curtidas.toSet().difference([eu()].toSet())))
+             || (mudou().hasOnly(['nComentarios'])
+               && (novo().nComentarios == resource.data.nComentarios + 1
+                   || (novo().nComentarios == resource.data.nComentarios - 1 && novo().nComentarios >= 0))));
            allow delete: if logado() && (resource.data.uid == eu() || grupo(g).criador == eu());
 
            match /comentarios/{c} {
              allow read: if membro(g);
-             allow create: if membro(g) && request.resource.data.uid == eu();
+             allow create: if membro(g) && idOk(c)
+               && novo().keys().hasOnly(['uid', 'nome', 'avatar', 'texto', 'criado'])
+               && novo().uid == eu() && texto(novo().nome, 60) && avatar(novo().avatar)
+               && texto(novo().texto, 300) && novo().texto.size() > 0 && novo().criado == request.time;
              allow delete: if logado() && (resource.data.uid == eu()
                || get(/databases/$(database)/documents/grupos/$(g)/posts/$(p)).data.uid == eu()
                || grupo(g).criador == eu());
@@ -134,7 +169,10 @@ No celular, abra o endereço e use:
 `usuarios/{uid}/partes/{id}`. A parte `base` guarda a configuração, as fichas, o peso, as notas e os check-ins.
 Os treinos registrados e os lançamentos ficam em partes separadas por ano (`sessoes-2026`, `transacoes-2026`),
 para nenhum documento chegar ao limite de 1 MB. Quando a mesma conta é usada em dois aparelhos, as alterações
-feitas em um aparecem no outro. Se as duas mexerem na mesma parte ao mesmo tempo, vale a última que chegou.
+feitas em um aparecem no outro. Se os dois aparelhos mexerem na mesma parte ao mesmo tempo, o app junta as duas versões:
+treinos e lançamentos item a item, e a parte `base` campo a campo (se o mesmo item foi editado nos dois, vale o do aparelho que juntou).
+
+O **Client Secret da Pluggy não vai para a nuvem**: fica só no aparelho onde foi digitado (`localStorage`, chave `tetis-pluggy:{uid}`).
 
 Na primeira vez que uma conta nova entra num aparelho que já tinha dados (de antes das contas),
 esses dados são levados para a conta.
@@ -168,8 +206,8 @@ Em todos os casos, os lançamentos repetidos são ignorados, a categoria é suge
 ### Open Finance (Meu Pluggy, grátis)
 
 Cada pessoa usa a **própria** conta Pluggy, no plano pessoal e gratuito, que aceita até 5 bancos do mesmo CPF.
-O Client ID, o Client Secret e os Item IDs ficam só nos dados da pessoa (`usuarios/{uid}`, protegido pelas regras do Firestore)
-e **não vão no backup**. O app fala direto com `https://api.pluggy.ai`, que aceita chamadas do navegador, sem servidor.
+O Client ID e os Item IDs ficam nos dados da pessoa (`usuarios/{uid}`, protegido pelas regras do Firestore).
+O **Client Secret fica só no aparelho** onde foi digitado: não vai para a nuvem nem para o backup. O app fala direto com `https://api.pluggy.ai`, que aceita chamadas do navegador, sem servidor.
 
 O passo a passo também aparece dentro do app, em Finanças → "Conectar meus bancos":
 1. Em **meu.pluggy.ai**, crie a conta e conecte os bancos e cartões. A autorização é feita no app do banco.
