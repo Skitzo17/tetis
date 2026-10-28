@@ -1090,7 +1090,8 @@ function vConfig() {
       <button class="btn primario" data-act="instalar">Instalar app</button>
     </div>
     <div class="card">
-      <button class="btn perigo" data-act="apagarTudo">Apagar todos os dados</button>
+      <p class="dica">Apaga só a parte de Finanças: todos os lançamentos (manuais, de extrato e do banco), o valor "Ajustar" e as categorias aprendidas. Treinos, peso, notas e grupos não são afetados.</p>
+      <div class="acoes"><button class="btn perigo" data-act="apagarFinancas">Apagar dados de Finanças</button></div>
     </div>
   `;
 }
@@ -2354,11 +2355,17 @@ const acoes = {
     return false;
   },
   recarregar: () => { location.reload(); return false; },
-  apagarTudo: () => {
-    if (!confirm(conta.usuario ? 'Apagar TODOS os seus dados (neste aparelho e na nuvem)? Isso não pode ser desfeito.' : 'Apagar TODOS os dados deste aparelho? Isso não pode ser desfeito.')) return;
-    if (!confirm('Tem certeza mesmo? Baixe um backup antes, se quiser.')) return;
-    state = estadoInicial();
-    toast('Dados apagados.');
+  apagarFinancas: () => {
+    const n = state.transacoes.length;
+    if (!confirm(`Apagar ${n} lançamentos de Finanças (inclusive os do banco) e o valor "Ajustar"? Treinos, peso, notas e grupos não são afetados. Isso não pode ser desfeito.`)) return false;
+    if (!confirm('Tem certeza mesmo? Baixe um backup antes, se quiser.')) return false;
+    state.transacoes = [];
+    state.regras = {};
+    state.config.saldoInicial = '';
+    salvar();
+    render();
+    toast('Dados de Finanças apagados.');
+    return false;
   },
   instalar: async () => {
     if (!instalarEvento) return;
